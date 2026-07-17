@@ -1,6 +1,6 @@
 aiogram>=3.28.1
 aiosqlite
-dotenv
+python-dotenv>=1.0
 flask[async]
 waitress
 emoji

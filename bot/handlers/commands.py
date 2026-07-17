@@ -15,10 +15,12 @@ from bot.handlers.moderation import is_user_muted, send_restriction_warning
 from bot.warning_state import clear_warning
 from env_config import require_int_env
 
+import asyncio
 import html
 import time
 
 router = Router()
+_BV_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
 
 COSMOS_ID = require_int_env("COSMOS_ID")
 
@@ -216,25 +218,35 @@ async def handle_view_command(message: Message, bot):
 # Команда /bv: отправляет шаблон анкеты в ответ на сообщение пользователя.
 @router.message(Command("bv"))
 async def handle_bv_command(message: Message):
+    """Отправляет одну актуальную форму /bv для выбранного пользователя."""
     try:
         await safe_delete(message)
-
         chat_id = message.chat.id
 
-        if await is_user_muted(chat_id, message.from_user.id):
+        if not message.from_user or await is_user_muted(chat_id, message.from_user.id):
             return
 
-        if message.reply_to_message:
+        if not message.reply_to_message or not message.reply_to_message.from_user:
+            sent = await bot_answer(
+                message,
+                "Для отправки формы с анкетой вызовите команду /bv в ответ на сообщение пользователя.",
+                wait=True,
+            )
+            if sent:
+                await save_timed_message(chat_id, sent.message_id)
+            return
+
+        target_message = message.reply_to_message
+        target_user_id = target_message.from_user.id
+        lock_key = (chat_id, target_user_id)
+        lock = _BV_LOCKS.setdefault(lock_key, asyncio.Lock())
+
+        # Сериализация важна: два одновременных /bv иначе оба успевают
+        # отправить сообщение до записи нового message_id в БД.
+        async with lock:
             async with db() as cur:
-                await cur.execute("SELECT content FROM form_text")
+                await cur.execute("SELECT content FROM form_text ORDER BY rowid LIMIT 1")
                 row = await cur.fetchone()
-
-            form_text = row[0] if row else ""
-
-            target_message = message.reply_to_message
-            target_user_id = target_message.from_user.id
-
-            async with db() as cur:
                 await cur.execute(
                     """
                     CREATE TABLE IF NOT EXISTS bv_messages (
@@ -251,18 +263,14 @@ async def handle_bv_command(message: Message):
                 )
                 previous = await cur.fetchone()
 
+            form_text = row[0] if row and row[0] else "Анкета пока не настроена администратором."
             if previous:
                 try:
                     await message.bot.delete_message(chat_id, int(previous[0]))
                 except Exception:
                     pass
 
-            sent = await bot_reply(
-                target_message,
-                form_text,
-                wait=True,
-                parse_mode="HTML",
-            )
+            sent = await bot_reply(target_message, form_text, wait=True, parse_mode="HTML")
             if sent:
                 async with db() as cur:
                     await cur.execute(
@@ -274,16 +282,6 @@ async def handle_bv_command(message: Message):
                         """,
                         (chat_id, target_user_id, sent.message_id),
                     )
-        else:
-            sent = await bot_answer(
-                message,
-                "Для отправки формы с анкетой вызовите команду /bv в ответ на сообщение пользователя.",
-                wait=True,
-            )
-
-            if sent:
-                await save_timed_message(chat_id, sent.message_id)
-
     except Exception as e:
         print("Ошибка /bv:", e)
 
