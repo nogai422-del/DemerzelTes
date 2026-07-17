@@ -36,19 +36,3 @@ Donation grant through admin panel: OK
 Chat notification callback after web grant: OK
 Members filters and pagination: HTTP 200
 Permission-stage template edit POST: OK
-
-FRESH DATABASE INTEGRATION — 2026-07-17
-Uploaded SQLite integrity_check: ok
-Migrated SQLite integrity_check: ok
-chat_users preserved: 7523
-Unique users added to admin_members: 7314
-donation_grants preserved: 28
-donation_usage preserved: 58
-Original permission templates preserved: 12
-Intermediate form templates present: 12
-Total permission templates: 24
-Empty Bothost volume receives full packaged database: OK
-Existing non-empty volume is not overwritten: OK
-Authenticated Flask GET routes: 14/14 HTTP 200
-Project module imports: 43/43 OK
-Python compileall: OK
