@@ -12,7 +12,7 @@ from bot.utils import (
     is_in_chat_member, safe_delete, is_command_admin, resolve_bot_image_path,
 )
 from bot.handlers.moderation import is_user_muted, send_restriction_warning
-from bot.warning_state import clear_warning
+from bot.warning_state import clear_warning, mark_form_saved, mark_form_started
 from env_config import require_int_env
 
 import asyncio
@@ -36,12 +36,17 @@ async def _save_filled_form(cur, chat_id: int, user_id: int, filled_form_text: s
 
     if exists:
         await cur.execute(
-            "UPDATE chat_users SET filled_form_text=? WHERE chat_id=? AND user_id=?",
+            """UPDATE chat_users
+               SET filled_form_text=?, form_stage='saved',
+                   form_saved_at=CAST(strftime('%s','now') AS INTEGER)
+               WHERE chat_id=? AND user_id=?""",
             (filled_form_text, chat_id, user_id),
         )
     else:
         await cur.execute(
-            "INSERT INTO chat_users (chat_id, user_id, filled_form_text) VALUES (?, ?, ?)",
+            """INSERT INTO chat_users (
+                   chat_id, user_id, filled_form_text, form_stage, form_saved_at
+               ) VALUES (?, ?, ?, 'saved', CAST(strftime('%s','now') AS INTEGER))""",
             (chat_id, user_id, filled_form_text),
         )
 
@@ -77,8 +82,13 @@ async def handle_save_command(message: Message, bot):
 
                 async with db() as cur:
                     await _save_filled_form(cur, chat_id, user_id, filled_form_text)
+                    await cur.execute(
+                        "DELETE FROM bv_messages WHERE chat_id=? AND target_user_id=?",
+                        (chat_id, user_id),
+                    )
 
-                # После /save общий onboarding-warning больше не нужен.
+                await mark_form_saved(chat_id, user_id)
+                # После /save промежуточное предупреждение больше не нужно.
                 await clear_warning(bot, chat_id, user_id)
 
                 # Снимаем Telegram-ограничения на медиа у пользователя.
@@ -269,6 +279,9 @@ async def handle_bv_command(message: Message):
                            message_id=excluded.message_id, updated_at=excluded.updated_at""",
                         (chat_id, target_id, sent.message_id, int(time.time())),
                     )
+                await mark_form_started(chat_id, target_id)
+                # При переходе к заполнению убираем старую общую карточку.
+                await clear_warning(message.bot, chat_id, target_id)
     except Exception as e:
         print("Ошибка /bv:", e)
 

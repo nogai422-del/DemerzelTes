@@ -20,7 +20,10 @@ CREATE TABLE IF NOT EXISTS chat_users (
     level INTEGER NOT NULL DEFAULT 0,
     permission_level INTEGER NOT NULL DEFAULT 0,
     can_view_forms INTEGER NOT NULL DEFAULT 0,
-    rank_name_cache TEXT NOT NULL DEFAULT ''
+    rank_name_cache TEXT NOT NULL DEFAULT '',
+    form_stage TEXT NOT NULL DEFAULT 'new',
+    form_started_at INTEGER NOT NULL DEFAULT 0,
+    form_saved_at INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS form_text (content TEXT NOT NULL DEFAULT '');
@@ -96,6 +99,9 @@ MIGRATION_COLUMNS = {
         "permission_level": "INTEGER NOT NULL DEFAULT 0",
         "can_view_forms": "INTEGER NOT NULL DEFAULT 0",
         "rank_name_cache": "TEXT NOT NULL DEFAULT ''",
+        "form_stage": "TEXT NOT NULL DEFAULT 'new'",
+        "form_started_at": "INTEGER NOT NULL DEFAULT 0",
+        "form_saved_at": "INTEGER NOT NULL DEFAULT 0",
     },
     "other": {
         "rating_button": "TEXT DEFAULT ''", "rating_url": "TEXT DEFAULT ''",
@@ -160,8 +166,22 @@ def ensure_database_ready(path: str, *, force: bool = False) -> None:
             return
         target = Path(absolute)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists():
+
+        # При первом запуске на новом volume переносим не только настройки,
+        # а полную встроенную рабочую базу: участников, донаты и статистику.
+        # Существующий непустой файл никогда автоматически не перезаписываем.
+        seed = Path(__file__).resolve().parents[1] / "database" / "database.db"
+        target_is_empty = not target.exists() or target.stat().st_size == 0
+        if (
+            target_is_empty
+            and seed.exists()
+            and seed.stat().st_size > 0
+            and seed.resolve() != target.resolve()
+        ):
+            shutil.copy2(seed, target)
+        elif not target.exists():
             target.touch()
+
         conn = sqlite3.connect(absolute, timeout=30)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
@@ -174,6 +194,38 @@ def ensure_database_ready(path: str, *, force: bool = False) -> None:
                     if name not in existing:
                         conn.execute(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {definition}')
             _seed_defaults(conn, target)
+            # Старые анкеты автоматически считаются сохранёнными. Записи с /bv
+            # без сохранённого текста переводятся в промежуточный этап заполнения.
+            conn.execute(
+                """UPDATE chat_users
+                   SET form_stage='saved',
+                       form_saved_at=CASE WHEN form_saved_at > 0 THEN form_saved_at ELSE CAST(strftime('%s','now') AS INTEGER) END
+                   WHERE TRIM(COALESCE(filled_form_text,'')) <> ''
+                     AND form_stage <> 'saved'"""
+            )
+            conn.execute(
+                """UPDATE chat_users
+                   SET form_stage='filling',
+                       form_started_at=CASE WHEN form_started_at > 0 THEN form_started_at ELSE CAST(strftime('%s','now') AS INTEGER) END
+                   WHERE TRIM(COALESCE(filled_form_text,'')) = ''
+                     AND form_stage = 'new'
+                     AND EXISTS (
+                         SELECT 1 FROM bv_messages b
+                         WHERE b.chat_id=chat_users.chat_id
+                           AND b.target_user_id=chat_users.user_id
+                     )"""
+            )
+            # Свежие рабочие базы старых версий содержат участников только
+            # в chat_users. Заполняем новый каталог админ-панели Telegram ID
+            # и количеством сообщений, не перезаписывая данные из CSV.
+            conn.execute(
+                """INSERT OR IGNORE INTO admin_members(user_id, message_count, imported_at)
+                   SELECT user_id, MAX(COALESCE(messages, 0)),
+                          CAST(strftime('%s','now') AS INTEGER)
+                   FROM chat_users
+                   WHERE user_id > 0
+                   GROUP BY user_id"""
+            )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_users_chat_user ON chat_users(chat_id,user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_users_score ON chat_users(chat_id,score DESC)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_variants_campaign ON scheduled_variants(campaign_id,sort_order,id)")

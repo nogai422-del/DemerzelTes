@@ -1,48 +1,98 @@
 {% extends "base.html" %}
-{% block title %}Отсутствие доната — Demerzel Control{% endblock %}
-{% block kicker %}Ограничения и разрешения{% endblock %}
-{% block page_title %}Отсутствие доната{% endblock %}
-{% block page_description %}Настройте сообщения, изображения и кнопки, которые получает пользователь при попытке использовать недоступную функцию.{% endblock %}
-{% block page_actions %}<a class="button button-secondary" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">Перейти к срокам донатов</a>{% endblock %}
+{% block title %}Этапы анкеты и ограничения — Demerzel Control{% endblock %}
+{% block kicker %}Анкета и модерация{% endblock %}
+{% block page_title %}Оповещения по этапам анкеты{% endblock %}
+{% block page_description %}Три независимых набора сообщений: до получения анкеты, во время заполнения и после сохранения командой /save.{% endblock %}
+{% block page_actions %}<a class="button button-secondary" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">Сроки и лимиты донатов</a>{% endblock %}
 {% block notices %}
-  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Уведомления сохранены</strong>Обновлённые шаблоны уже используются ботом.</div></div>{% endif %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Оповещения сохранены</strong>Новые тексты уже используются ботом.</div></div>{% endif %}
   {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
 {% endblock %}
-{% block content %}
-<div class="info-panel">
-  <p>До команды <code>/save</code> бот использует единый шаблон «До сохранения анкеты». После сохранения включаются отдельные уведомления.</p>
-  <p>Для каждого пользователя остаётся только последнее предупреждение, а альбом из нескольких фотографий получает одно сообщение на всю пачку.</p>
-</div>
-<form method="POST" enctype="multipart/form-data">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <section class="section-card">
-    <div class="section-header"><div><h2>Шаблоны ограничений</h2><p>Раскройте нужный тип медиа и измените только необходимые поля.</p></div><span class="section-icon">◈</span></div>
-    {% for m in media_list %}
-      {% if m.media_type != "sticker" %}
-      <details class="settings-accordion" {% if m.media_type == 'onboarding' %}open{% endif %}>
-        <summary><span>{{ m.title }}<small class="accordion-subtitle">{% if m.media_type == 'onboarding' %}Общий шаблон до заполнения анкеты{% else %}Тип: {{ m.media_type }}{% endif %}</small></span></summary>
-        <div class="accordion-body">
-          {% if m.media_type == 'onboarding' %}<div class="info-panel"><p>Этот текст заменяет все отдельные уведомления, пока анкета пользователя не сохранена.</p></div>{% endif %}
-          <div class="form-grid">
-            <div class="form-group full"><label>Текст уведомления</label><textarea name="media[{{ m.media_type }}][message]" placeholder="Используйте {user}">{{ m.message }}</textarea><span class="field-help">Можно использовать подстановку <code>{user}</code>.</span></div>
-            {% if m.media_type != "emoji" %}
-            <div class="form-group full"><label>Изображение</label><div class="image-wrapper preview-frame">
-              {% if m.image_path %}{% set filename = m.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=permission&img={{ filename }}" alt="{{ m.title }}">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
-              <div class="form-group" style="flex:1; min-width:220px;"><input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}"><input class="upload-input" type="file" name="media[{{ m.media_type }}][upload]" accept=".jpg,.jpeg,.png,.gif"><span class="field-help">Загрузка нового файла заменяет текущее изображение.</span></div>
-            </div></div>
-            {% else %}<input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}">{% endif %}
-            <div class="form-group"><label>Текст кнопки</label><input type="text" name="media[{{ m.media_type }}][button_text]" value="{{ m.button_text or '' }}" placeholder="Заполнить анкету"></div>
-            <div class="form-group"><label>URL кнопки</label><input type="text" name="media[{{ m.media_type }}][button_url]" value="{{ m.button_url or '' }}" placeholder="https://"></div>
+
+{% macro notification_editor(m, open=false, subtitle='') %}
+<details class="settings-accordion" {% if open %}open{% endif %}>
+  <summary>
+    <span>{{ m.title }}<small class="accordion-subtitle">{{ subtitle or ('Тип: ' ~ m.base_type) }}</small></span>
+  </summary>
+  <div class="accordion-body">
+    <div class="form-grid">
+      <div class="form-group full">
+        <label>Текст уведомления</label>
+        <textarea name="media[{{ m.media_type }}][message]" placeholder="Используйте {user}">{{ m.message }}</textarea>
+        <span class="field-help">Доступны <code>{user}</code>, <code>{user_id}</code> и <code>{full_name}</code>.</span>
+      </div>
+      {% if m.allow_image %}
+      <div class="form-group full">
+        <label>Изображение</label>
+        <div class="image-wrapper preview-frame">
+          {% if m.image_path %}
+            {% set filename = m.image_path.split('/')[-1] %}
+            <img class="preview" src="{{ url_for('image.serve_image') }}?type=permission&img={{ filename }}" alt="{{ m.title }}">
+          {% else %}
+            <img class="preview" src="" alt="" style="display:none;">
+          {% endif %}
+          <div class="form-group" style="flex:1; min-width:220px;">
+            <input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}">
+            <input class="upload-input" type="file" name="media[{{ m.media_type }}][upload]" accept=".jpg,.jpeg,.png,.gif">
+            <span class="field-help">Новый файл заменит текущее изображение только у этого этапа.</span>
           </div>
         </div>
-      </details>
+      </div>
+      {% else %}
+        <input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}">
       {% endif %}
-    {% endfor %}
+      <div class="form-group"><label>Текст кнопки</label><input type="text" name="media[{{ m.media_type }}][button_text]" value="{{ m.button_text or '' }}" placeholder="Продолжить заполнение"></div>
+      <div class="form-group"><label>URL кнопки</label><input type="url" name="media[{{ m.media_type }}][button_url]" value="{{ m.button_url or '' }}" placeholder="https://"></div>
+    </div>
+  </div>
+</details>
+{% endmacro %}
+
+{% block content %}
+<div class="stage-flow" aria-label="Этапы анкеты">
+  <div class="stage-step"><span>1</span><strong>До /bv</strong><small>Общее сообщение</small></div>
+  <div class="stage-arrow">→</div>
+  <div class="stage-step stage-step-active"><span>2</span><strong>/bv → /save</strong><small>Отдельные причины удаления</small></div>
+  <div class="stage-arrow">→</div>
+  <div class="stage-step"><span>3</span><strong>После /save</strong><small>Обычные донат-ограничения</small></div>
+</div>
+
+<form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Этап 1 · До команды /bv</h2><p>Одно универсальное предупреждение для пользователя, которому ещё не отправили анкету.</p></div><span class="section-icon">1</span></div>
+    {% if onboarding %}
+      {{ notification_editor(onboarding, true, 'Используется до первой команды /bv') }}
+    {% else %}
+      <div class="notice notice-error">Шаблон первого этапа не найден. Перезапустите приложение для восстановления схемы.</div>
+    {% endif %}
+  </section>
+
+  <section class="section-card stage-highlight">
+    <div class="section-header"><div><h2>Этап 2 · Между /bv и /save</h2><p>Новые отдельные сообщения для анкеты. Например, мат и смайлики объясняются иначе, чем обычное отсутствие доната.</p></div><span class="section-icon">2</span></div>
+    <div class="info-panel"><p>Этап включается сразу после отправки формы командой <code>/bv</code> и заканчивается после успешной команды <code>/save</code>. Для пользователя всё равно остаётся только одна последняя карточка предупреждения.</p></div>
+    <div class="accordion-stack">
+      {% for m in filling_list %}
+        {{ notification_editor(m, m.base_type in ['badword', 'emoji'], 'Во время заполнения · ' ~ m.base_type) }}
+      {% else %}
+        <div class="notice notice-error">Промежуточные шаблоны не найдены. Перезапустите приложение.</div>
+      {% endfor %}
+    </div>
   </section>
 
   <section class="section-card">
-    <div class="section-header"><div><h2>Реакции</h2><p>Отдельное сообщение для попытки поставить реакцию без уровня «Медиа 2».</p></div><span class="section-icon">♥</span></div>
-    <div class="info-panel"><p>До сохранения анкеты всё равно используется общий шаблон. Доступны: <code>{user}</code>, <code>{full_name}</code>, <code>{user_id}</code>, <code>{category}</code>.</p></div>
+    <div class="section-header"><div><h2>Этап 3 · После команды /save</h2><p>Обычные уведомления об отсутствии нужного медиа-уровня или доната.</p></div><span class="section-icon">3</span></div>
+    <div class="accordion-stack">
+      {% for m in regular_list %}
+        {{ notification_editor(m, false, 'После сохранения · ' ~ m.base_type) }}
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Реакции после /save</h2><p>Отдельный донат-шаблон для попытки поставить реакцию без уровня «Медиа 2».</p></div><span class="section-icon">♥</span></div>
+    <div class="info-panel"><p>До <code>/save</code> реакции используют шаблоны этапов 1 и 2. Ниже настраивается только поведение уже сохранённого пользователя.</p></div>
     <div class="form-grid">
       <div class="form-group full"><label>Текст уведомления</label><textarea name="reaction_denied[message]" placeholder="Используйте {user}">{{ reaction_denied.message }}</textarea></div>
       <div class="form-group full"><label>Изображение</label><div class="image-wrapper preview-frame">
@@ -53,12 +103,13 @@
         </div>
       </div></div>
       <div class="form-group"><label>Первая кнопка</label><input type="text" name="reaction_denied[button1_text]" value="{{ reaction_denied.button1_text or '' }}" placeholder="Текст кнопки"></div>
-      <div class="form-group"><label>URL первой кнопки</label><input type="text" name="reaction_denied[button1_url]" value="{{ reaction_denied.button1_url or '' }}" placeholder="https://"></div>
+      <div class="form-group"><label>URL первой кнопки</label><input type="url" name="reaction_denied[button1_url]" value="{{ reaction_denied.button1_url or '' }}" placeholder="https://"></div>
       <div class="form-group"><label>Вторая кнопка</label><input type="text" name="reaction_denied[button2_text]" value="{{ reaction_denied.button2_text or '' }}" placeholder="Текст кнопки"></div>
-      <div class="form-group"><label>URL второй кнопки</label><input type="text" name="reaction_denied[button2_url]" value="{{ reaction_denied.button2_url or '' }}" placeholder="https://"></div>
+      <div class="form-group"><label>URL второй кнопки</label><input type="url" name="reaction_denied[button2_url]" value="{{ reaction_denied.button2_url or '' }}" placeholder="https://"></div>
     </div>
   </section>
-  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить уведомления</button></div>
+
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить все этапы</button></div>
 </form>
 {% endblock %}
 {% block scripts %}

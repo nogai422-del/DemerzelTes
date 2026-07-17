@@ -32,9 +32,12 @@ from bot.utils import (
     save_timed_message, get_full_name, safe_delete, is_command_admin
 )
 from bot.warning_state import (
+    FORM_STAGE_FILLING,
+    FORM_STAGE_NEW,
     ONBOARDING_PERMISSION_TYPE,
     ensure_warning_schema,
-    has_completed_form,
+    form_filling_permission_type,
+    get_form_stage,
     replace_warning,
 )
 from env_config import require_int_env
@@ -362,16 +365,25 @@ async def send_restriction_warning_to_chat(
     """
     Отправляет одно актуальное предупреждение пользователю.
 
-    До сохранения анкеты через /save используется общий шаблон onboarding.
-    После /save включаются отдельные шаблоны по каждому ограничению.
+    До /bv используется общий шаблон. Между /bv и /save используются
+    отдельные промежуточные шаблоны. После /save — обычные шаблоны.
     """
     user_id = int(user.id)
     effective_type = permission_type
+    form_stage = None
     if not force_permission_type and permission_type != "view":
-        if not await has_completed_form(chat_id, user_id):
+        form_stage = await get_form_stage(chat_id, user_id)
+        if form_stage == FORM_STAGE_NEW:
             effective_type = ONBOARDING_PERMISSION_TYPE
+        elif form_stage == FORM_STAGE_FILLING:
+            effective_type = form_filling_permission_type(permission_type)
 
     settings = await get_permission_settings(effective_type)
+    if not settings and form_stage == FORM_STAGE_FILLING:
+        # Защита для старых баз: даже если конкретный промежуточный шаблон
+        # не создался, пользователь получит понятное общее предупреждение.
+        effective_type = ONBOARDING_PERMISSION_TYPE
+        settings = await get_permission_settings(effective_type)
     if not settings:
         return False
 
@@ -1309,6 +1321,7 @@ async def moderation_handle_message(message: Message) -> bool:
     # Ниже — проверки по типам вложений и медиа.
     if content_type == "sticker":
         await safe_delete(message)
+        await send_restriction_warning(message, "sticker")
         return True
 
     if content_type == "audio":

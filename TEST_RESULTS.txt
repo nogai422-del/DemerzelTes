@@ -1,24 +1,54 @@
-Database ready: path=/mnt/data/demerzel_v7_finaltest/database.db
-MODULE_IMPORTS 43 OK
-HEALTH 200 {'missing_tables': [], 'status': 'ok'}
-UNAUTH_ROOT 302 /login
-GET / 200
-GET /appearance 200
-GET /members 200
-GET /donation_revoke 200
-GET /edit_badwords 200
-GET /edit_donation_notifications 200
-GET /edit_form 200
-GET /edit_levels 200
-GET /edit_other 200
-GET /edit_permission_messages 200
-GET /images 200
-GET /message_settings 200
-GET /scheduled_messages 200
-CSV_POST 302 /members?notice=imported_139
-GRANT_POST 302 /members?notice=granted
-INTEGRITY ok
-IMPORTED 139
-SYNCED 139
-GRANT ('voice', 7)
-COMPILEALL_OK
+FINAL FUNCTIONAL TEST — 2026-07-17
+
+Python compileall: OK
+Project module imports: 40/40 OK
+SQLite integrity_check: ok
+Old partial database migration: OK, existing data preserved
+Form stages: new -> filling -> saved OK
+/bv duplicate replacement: OK
+/save transition and saved form: OK
+Stage-specific warning selection: OK
+One active warning per user: OK
+Intermediate templates created: 12
+
+Flask GET routes HTTP 200:
+- /
+- /edit_form
+- /edit_levels
+- /images
+- /edit_permission_messages
+- /edit_donation_notifications
+- /edit_other
+- /scheduled_messages
+- /edit_badwords
+- /appearance
+- /message_settings
+- /donation_revoke
+- /members
+- /health
+
+/health:
+{"status":"ok","missing_tables":[],"form_filling_templates":12}
+
+CSV import using supplied sample: 139 members
+CSV -> chat_users synchronization: 139 members
+Donation grant through admin panel: OK
+Chat notification callback after web grant: OK
+Members filters and pagination: HTTP 200
+Permission-stage template edit POST: OK
+
+FRESH DATABASE INTEGRATION — 2026-07-17
+Uploaded SQLite integrity_check: ok
+Migrated SQLite integrity_check: ok
+chat_users preserved: 7523
+Unique users added to admin_members: 7314
+donation_grants preserved: 28
+donation_usage preserved: 58
+Original permission templates preserved: 12
+Intermediate form templates present: 12
+Total permission templates: 24
+Empty Bothost volume receives full packaged database: OK
+Existing non-empty volume is not overwritten: OK
+Authenticated Flask GET routes: 14/14 HTTP 200
+Project module imports: 43/43 OK
+Python compileall: OK

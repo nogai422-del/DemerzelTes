@@ -1,39 +1,154 @@
 {% extends "base.html" %}
-{% block title %}Участники — Demerzel{% endblock %}
-{% block kicker %}Данные сообщества{% endblock %}
+{% block title %}Участники — Demerzel Control{% endblock %}
+{% block kicker %}Пользователи и доступы{% endblock %}
 {% block page_title %}Участники{% endblock %}
-{% block page_description %}Импорт CSV, поиск пользователей и выдача донат-доступов.{% endblock %}
+{% block page_description %}Поиск, этапы анкеты, активные донаты, CSV-импорт и быстрая выдача доступа с уведомлением в Telegram-чат.{% endblock %}
+{% block page_actions %}
+  <button type="button" class="button" data-open-grant data-user-id="" data-user-name="">Выдать донат</button>
+{% endblock %}
 {% block notices %}
-  {% if notice %}<div class="notice success">Готово: {{ notice }}</div>{% endif %}
-  {% if error %}<div class="notice error">Ошибка: {{ error }}</div>{% endif %}
+  {% if notice == 'granted' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Донат выдан</strong>Оповещение отправлено пользователю в выбранный чат.</div></div>{% endif %}
+  {% if notice == 'granted_notify_failed' %}<div class="notice notice-warning"><span class="notice-icon">!</span><div><strong>Донат сохранён, но сообщение не отправлено</strong>Проверьте, что бот находится в выбранном чате и может отправлять сообщения.</div></div>{% endif %}
+  {% if notice and notice.startswith('imported_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>CSV импортирован</strong>Загружено записей: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
+  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось выполнить действие</strong>
+    {% if error == 'csrf' %}Обновите страницу и повторите действие.
+    {% elif error == 'no_file' %}Выберите CSV-файл.
+    {% elif error == 'encoding' %}Не удалось определить кодировку файла.
+    {% elif error == 'columns' %}В CSV отсутствует обязательная колонка <code>user_id</code>.
+    {% elif error == 'bad_csv' %}Файл повреждён или имеет неверную структуру.
+    {% elif error == 'grant' %}Проверьте ID чата, пользователя, срок и тип доната.
+    {% else %}Код ошибки: {{ error }}.
+    {% endif %}</div></div>{% endif %}
 {% endblock %}
 {% block content %}
-<section class="panel-card">
-  <h2>Импорт CSV</h2>
-  <form method="post" enctype="multipart/form-data" class="form-grid">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="import_csv">
-    <label>CSV-файл<input type="file" name="csv_file" accept=".csv,text/csv" required></label>
-    <label>ID чата (необязательно)<input type="number" name="chat_id" placeholder="-100..."></label>
-    <button type="submit">Импортировать</button>
+<section class="member-stats-grid" aria-label="Сводка участников">
+  <article class="member-stat"><span>Всего в каталоге</span><strong>{{ stats.total_members }}</strong><small>Импортированные профили</small></article>
+  <article class="member-stat"><span>До /bv</span><strong>{{ stats.stages.new }}</strong><small>Анкета ещё не выдана</small></article>
+  <article class="member-stat member-stat-accent"><span>Заполняют</span><strong>{{ stats.stages.filling }}</strong><small>Этап между /bv и /save</small></article>
+  <article class="member-stat"><span>Анкета сохранена</span><strong>{{ stats.stages.saved }}</strong><small>Прошли /save</small></article>
+  <article class="member-stat"><span>Активные донаты</span><strong>{{ stats.active_donations }}</strong><small>В выбранном чате</small></article>
+</section>
+
+<section class="section-card compact">
+  <form method="get" class="member-filter-grid" data-member-filter>
+    <div class="form-group member-search"><label>Поиск</label><input name="q" value="{{ query }}" placeholder="Имя, @username или Telegram ID"></div>
+    <div class="form-group"><label>Чат</label><select name="chat_id">
+      {% for id in chat_ids %}<option value="{{ id }}" {% if id == selected_chat_id %}selected{% endif %}>{{ id }}</option>{% else %}<option value="{{ selected_chat_id }}">{{ selected_chat_id }}</option>{% endfor %}
+    </select></div>
+    <div class="form-group"><label>Этап анкеты</label><select name="stage">
+      <option value="">Все этапы</option><option value="new" {% if stage_filter=='new' %}selected{% endif %}>До /bv</option><option value="filling" {% if stage_filter=='filling' %}selected{% endif %}>Заполняет</option><option value="saved" {% if stage_filter=='saved' %}selected{% endif %}>Сохранена</option>
+    </select></div>
+    <div class="form-group"><label>Статус Telegram</label><select name="status"><option value="">Все статусы</option>{% for value in status_options %}<option value="{{ value }}" {% if status_filter==value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+    <div class="form-group"><label>Донат</label><select name="donation"><option value="">Любой</option>{% for key,title in categories.items() %}<option value="{{ key }}" {% if donation_filter==key %}selected{% endif %}>{{ title }}</option>{% endfor %}</select></div>
+    <div class="form-group"><label>Сортировка</label><select name="sort">
+      <option value="activity" {% if sort=='activity' %}selected{% endif %}>По активности</option><option value="name" {% if sort=='name' %}selected{% endif %}>По имени</option><option value="id" {% if sort=='id' %}selected{% endif %}>По ID</option><option value="status" {% if sort=='status' %}selected{% endif %}>По статусу</option><option value="stage" {% if sort=='stage' %}selected{% endif %}>По этапу анкеты</option>
+    </select></div>
+    <div class="form-group"><label>На странице</label><select name="per_page">{% for size in page_sizes %}<option value="{{ size }}" {% if per_page==size %}selected{% endif %}>{{ size }}</option>{% endfor %}</select></div>
+    <div class="member-filter-actions"><button type="submit">Применить</button><a class="button button-ghost" href="{{ url_for('members.members', chat_id=selected_chat_id) }}">Сбросить</a></div>
   </form>
-  <p class="muted">Поддерживаются UTF-8 и Windows-1251. Обязательная колонка: user_id.</p>
 </section>
-<section class="panel-card">
-  <h2>Выдать донат</h2>
-  <form method="post" class="form-grid">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="grant">
-    <label>ID чата<input type="number" name="chat_id" list="chat-ids" required></label>
-    <datalist id="chat-ids">{% for id in chat_ids %}<option value="{{ id }}">{% endfor %}</datalist>
-    <label>ID пользователя<input type="number" name="user_id" required></label>
-    <label>Тип<select name="category">{% for key,title in categories.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}</select></label>
-    <label>Дней<input type="number" name="days" min="1" value="30" required></label>
-    <label>Лимит в сутки<input type="number" name="daily_limit" min="0" value="0"></label>
-    <button type="submit">Выдать</button>
+
+<section class="section-card">
+  <div class="section-header"><div><h2>Каталог участников</h2><p>Найдено {{ total_filtered }}. Донаты и этапы показаны для чата {{ selected_chat_id }}.</p></div><span class="section-icon">☰</span></div>
+  <div class="table-wrap member-table-wrap">
+    <table class="admin-table member-table">
+      <thead><tr><th>Участник</th><th>Telegram ID</th><th>Этап анкеты</th><th>Активность</th><th>Донаты</th><th>Статус</th><th></th></tr></thead>
+      <tbody>
+      {% for m in members %}
+        <tr>
+          <td>
+            <div class="member-identity">
+              <span class="member-avatar">{{ (m.name or m.username or 'U')[0]|upper }}</span>
+              <span><strong>{{ m.name or ('@' ~ m.username if m.username else 'Без имени') }}</strong>{% if m.username and m.name %}<small>@{{ m.username }}</small>{% endif %}</span>
+            </div>
+          </td>
+          <td><button type="button" class="copy-id" data-copy="{{ m.user_id }}" title="Скопировать ID">{{ m.user_id }}</button></td>
+          <td>
+            {% if m.form_stage == 'saved' %}<span class="stage-badge stage-saved">✓ Сохранена</span>
+            {% elif m.form_stage == 'filling' %}<span class="stage-badge stage-filling">… Заполняет</span>
+            {% else %}<span class="stage-badge stage-new">До /bv</span>{% endif %}
+          </td>
+          <td><strong>{{ m.message_count }}</strong><small class="table-subtext">сообщений</small></td>
+          <td>
+            <div class="donation-badges">
+              {% for grant in m.grants %}<span class="donation-badge" title="До {{ grant.valid_until_text }}{% if grant.daily_limit %}, лимит {{ grant.daily_limit }}{% endif %}">{{ grant.title }} · {{ grant.valid_until_text }}</span>{% else %}<span class="table-empty">Нет</span>{% endfor %}
+            </div>
+          </td>
+          <td><span class="telegram-status">{{ m.telegram_status or '—' }}</span>{% if m.telegram_last_seen_at %}<small class="table-subtext">{{ m.telegram_last_seen_at }}</small>{% endif %}</td>
+          <td class="member-actions"><button type="button" class="button button-small" data-open-grant data-user-id="{{ m.user_id }}" data-user-name="{{ m.name or ('@' ~ m.username if m.username else m.user_id) }}">Выдать</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7"><div class="empty-state"><strong>Ничего не найдено</strong><span>Измените фильтры или импортируйте CSV.</span></div></td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if total_pages > 1 %}
+  <nav class="pagination" aria-label="Страницы">
+    {% if page > 1 %}<a class="button button-ghost button-small" href="{{ url_for('members.members', q=query, chat_id=selected_chat_id, stage=stage_filter, status=status_filter, donation=donation_filter, sort=sort, per_page=per_page, page=page-1) }}">← Назад</a>{% endif %}
+    <span>Страница <strong>{{ page }}</strong> из {{ total_pages }}</span>
+    {% if page < total_pages %}<a class="button button-ghost button-small" href="{{ url_for('members.members', q=query, chat_id=selected_chat_id, stage=stage_filter, status=status_filter, donation=donation_filter, sort=sort, per_page=per_page, page=page+1) }}">Вперёд →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+
+<details class="section-card import-panel">
+  <summary><span><strong>Импортировать или обновить участников из CSV</strong><small>UTF-8 и Windows-1251, обязательная колонка user_id</small></span><span class="section-icon">⇧</span></summary>
+  <div class="accordion-body">
+    <form method="post" enctype="multipart/form-data" class="form-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="import_csv">
+      <input type="hidden" name="return_chat_id" value="{{ selected_chat_id }}"><input type="hidden" name="return_q" value="{{ query }}">
+      <div class="form-group full"><label>CSV-файл</label><input type="file" name="csv_file" accept=".csv,text/csv" required><span class="field-help">Поддерживаются колонки: user_id, username, name, message_count, telegram_status и даты активности.</span></div>
+      <div class="form-group"><label>Добавить в чат</label><select name="chat_id"><option value="0">Только каталог</option>{% for id in chat_ids %}<option value="{{ id }}" {% if id==selected_chat_id %}selected{% endif %}>{{ id }}</option>{% endfor %}</select></div>
+      <div class="form-group form-submit-align"><button type="submit">Импортировать CSV</button></div>
+    </form>
+  </div>
+</details>
+
+<dialog class="grant-dialog" data-grant-dialog>
+  <form method="post" class="grant-dialog-card">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="grant"><input type="hidden" name="user_id" data-grant-user-id>
+    <input type="hidden" name="return_chat_id" value="{{ selected_chat_id }}"><input type="hidden" name="return_q" value="{{ query }}"><input type="hidden" name="return_stage" value="{{ stage_filter }}"><input type="hidden" name="return_status" value="{{ status_filter }}"><input type="hidden" name="return_donation" value="{{ donation_filter }}"><input type="hidden" name="return_sort" value="{{ sort }}">
+    <div class="grant-dialog-head"><div><span class="page-kicker">Быстрая выдача</span><h2>Выдать донат</h2><p data-grant-user-label>Укажите Telegram ID участника</p></div><button type="button" class="icon-button" data-close-grant aria-label="Закрыть">×</button></div>
+    <div class="form-grid">
+      <div class="form-group"><label>Telegram ID</label><input type="number" data-grant-user-visible required></div>
+      <div class="form-group"><label>Чат для доната и оповещения</label><select name="chat_id" required>{% for id in chat_ids %}<option value="{{ id }}" {% if id==selected_chat_id %}selected{% endif %}>{{ id }}</option>{% else %}<option value="{{ selected_chat_id }}">{{ selected_chat_id }}</option>{% endfor %}</select></div>
+      <div class="form-group"><label>Тип доната</label><select name="category" data-grant-category>{% for key,title in categories.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}</select></div>
+      <div class="form-group"><label>Срок, дней</label><input type="number" name="days" min="1" max="36500" value="30" required></div>
+      <div class="form-group"><label>Лимит в сутки</label><input type="number" name="daily_limit" min="0" max="100000" value="0"><span class="field-help">0 — использовать общий лимит. Для тега не применяется.</span></div>
+    </div>
+    <div class="grant-notify-note"><span>↗</span><p><strong>Оповещение включено всегда.</strong> После сохранения бот отправит сообщение о выдаче доната в выбранный чат.</p></div>
+    <div class="dialog-actions"><button type="button" class="button button-ghost" data-close-grant>Отмена</button><button type="submit">Выдать и оповестить</button></div>
   </form>
-</section>
-<section class="panel-card">
-  <form method="get" class="inline-search"><input name="q" value="{{ query }}" placeholder="ID, имя или username"><button>Найти</button></form>
-  <div class="table-wrap"><table><thead><tr><th>ID</th><th>Username</th><th>Имя</th><th>Сообщений</th><th>Статус</th><th>Последняя активность</th></tr></thead>
-  <tbody>{% for m in members %}<tr><td>{{ m.user_id }}</td><td>{% if m.username %}@{{ m.username }}{% endif %}</td><td>{{ m.name }}</td><td>{{ m.message_count }}</td><td>{{ m.telegram_status }}</td><td>{{ m.telegram_last_seen_at }}</td></tr>{% else %}<tr><td colspan="6">Участники ещё не импортированы.</td></tr>{% endfor %}</tbody></table></div>
-</section>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const dialog = document.querySelector('[data-grant-dialog]');
+  const hiddenId = dialog && dialog.querySelector('[data-grant-user-id]');
+  const visibleId = dialog && dialog.querySelector('[data-grant-user-visible]');
+  const label = dialog && dialog.querySelector('[data-grant-user-label]');
+  const syncId = () => { if (hiddenId && visibleId) hiddenId.value = visibleId.value; };
+  if (visibleId) visibleId.addEventListener('input', syncId);
+  document.querySelectorAll('[data-open-grant]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      const id = button.dataset.userId || '';
+      const name = button.dataset.userName || '';
+      if (visibleId) visibleId.value = id;
+      syncId();
+      if (label) label.textContent = name ? `${name} · ${id}` : 'Введите Telegram ID';
+      if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+    });
+  });
+  document.querySelectorAll('[data-close-grant]').forEach(function (button) { button.addEventListener('click', function () { if (dialog) dialog.close(); }); });
+  if (dialog) dialog.addEventListener('click', function (event) { if (event.target === dialog) dialog.close(); });
+  document.querySelectorAll('[data-copy]').forEach(function (button) {
+    button.addEventListener('click', async function () {
+      try { await navigator.clipboard.writeText(button.dataset.copy); const old = button.textContent; button.textContent = 'Скопировано'; setTimeout(() => button.textContent = old, 900); } catch (_) {}
+    });
+  });
+});
+</script>
 {% endblock %}

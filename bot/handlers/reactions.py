@@ -9,7 +9,7 @@ from aiogram.types import MessageReactionUpdated
 from bot.database import db
 from bot.donations import send_reaction_denied_notification
 from bot.handlers.moderation import send_restriction_warning_to_chat
-from bot.warning_state import has_completed_form
+from bot.warning_state import FORM_STAGE_SAVED, get_form_stage
 
 router = Router()
 
@@ -90,13 +90,12 @@ async def enforce_reaction_media_level(
         return
 
     try:
-        if not await has_completed_form(chat_id, user_id):
+        if await get_form_stage(chat_id, user_id) != FORM_STAGE_SAVED:
             await send_restriction_warning_to_chat(
                 bot,
                 chat_id=chat_id,
                 user=user,
-                permission_type="onboarding",
-                force_permission_type=True,
+                permission_type="reaction",
             )
         else:
             await send_reaction_denied_notification(

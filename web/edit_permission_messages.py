@@ -8,7 +8,13 @@ import secrets
 from flask import Blueprint, render_template, request, redirect, session
 from bot.database import db
 from bot.donations import ensure_donation_schema
-from bot.warning_state import ensure_warning_schema, ONBOARDING_PERMISSION_TYPE
+from bot.warning_state import (
+    FORM_FILLING_PREFIX,
+    ONBOARDING_PERMISSION_TYPE,
+    base_permission_type,
+    ensure_warning_schema,
+    is_form_filling_permission_type,
+)
 
 edit_permission_bp = Blueprint("edit_permission", __name__)
 
@@ -173,7 +179,7 @@ async def edit_permission_messages():
 
                 file = request.files.get(f"media[{media_type}][upload]")
 
-                if media_type != "emoji" and file and file.filename:
+                if base_permission_type(media_type) != "emoji" and file and file.filename:
                     ext = file.filename.rsplit(".", 1)[-1].lower()
                     if ext in ALLOWED_EXTENSIONS:
                         new_name = f"img_{uuid.uuid4().hex}.{ext}"
@@ -204,30 +210,46 @@ async def edit_permission_messages():
     async with db() as cur:
         await cur.execute(
             """
-            SELECT * FROM permission_types
-            ORDER BY CASE WHEN media_type = ? THEN 0 ELSE 1 END,
-                     title COLLATE NOCASE ASC
-            """,
-            (ONBOARDING_PERMISSION_TYPE,),
+            SELECT media_type, title, message, image_path, button_text, button_url
+            FROM permission_types
+            ORDER BY title COLLATE NOCASE ASC
+            """
         )
         rows = await cur.fetchall()
 
-    media_list = []
+    onboarding = None
+    filling_list = []
+    regular_list = []
     for r in rows:
-        media_list.append({
-            "media_type": r[0],
+        media_type = str(r[0])
+        item = {
+            "media_type": media_type,
+            "base_type": base_permission_type(media_type),
             "title": r[1],
             "message": display_message(r[2] or ""),
             "image_path": r[3],
             "button_text": r[4],
             "button_url": r[5],
-        })
+            "allow_image": base_permission_type(media_type) != "emoji",
+        }
+        if media_type == ONBOARDING_PERMISSION_TYPE:
+            onboarding = item
+        elif is_form_filling_permission_type(media_type):
+            filling_list.append(item)
+        elif media_type != "sticker":
+            regular_list.append(item)
 
+    # Стикеры показываются на промежуточном этапе, но старый общий шаблон
+    # после /save для них не используется. Реакции после /save настраиваются отдельно.
+    filling_list.sort(key=lambda item: str(item["title"]).casefold())
+    regular_list.sort(key=lambda item: str(item["title"]).casefold())
     reaction_denied = await _load_reaction_denied_template()
 
     return render_template(
         "edit_permission_messages.html",
-        media_list=media_list,
+        onboarding=onboarding,
+        filling_list=filling_list,
+        regular_list=regular_list,
         reaction_denied=reaction_denied,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),

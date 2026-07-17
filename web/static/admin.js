@@ -105,7 +105,7 @@
   }
 
   const url = new URL(window.location.href);
-  ['saved', 'uploaded', 'deleted', 'csrf'].forEach((key) => {
+  ['saved', 'uploaded', 'deleted', 'csrf', 'notice', 'error'].forEach((key) => {
     if (url.searchParams.has(key)) url.searchParams.delete(key);
   });
   if (url.toString() !== window.location.href) history.replaceState({}, '', url.toString());

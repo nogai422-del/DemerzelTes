@@ -14,6 +14,7 @@ from bot.donations import (
     ensure_donation_schema,
     get_expiry_notification_settings,
 )
+from bot.warning_state import ensure_warning_schema
 from bot.settings import (
     ensure_chat_behavior_schema,
     get_restrict_new_members_telegram,
@@ -88,13 +89,28 @@ def create_app():
 
     @app.get("/health")
     async def health():
-        required = ("chat_users", "other", "scheduled_campaigns", "form_text", "levels")
+        await ensure_donation_schema()
+        await ensure_warning_schema()
+        required = (
+            "chat_users", "other", "scheduled_campaigns", "form_text", "levels",
+            "permission_types", "bv_messages", "admin_members", "donation_grants",
+        )
         async with db() as cur:
             await cur.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = {str(row[0]) for row in await cur.fetchall()}
+            await cur.execute(
+                "SELECT COUNT(*) FROM permission_types WHERE media_type LIKE 'form_filling:%'"
+            )
+            filling_templates = int((await cur.fetchone())[0])
         missing = [name for name in required if name not in tables]
-        status = 503 if missing else 200
-        return jsonify({"status": "error" if missing else "ok", "missing_tables": missing}), status
+        templates_ready = filling_templates >= 12
+        ok = not missing and templates_ready
+        status = 200 if ok else 503
+        return jsonify({
+            "status": "ok" if ok else "error",
+            "missing_tables": missing,
+            "form_filling_templates": filling_templates,
+        }), status
 
     # Редиректит на стартовую страницу панели после авторизации.
     @app.route("/")
@@ -104,6 +120,7 @@ def create_app():
 
         await ensure_donation_schema()
         await ensure_chat_behavior_schema()
+        await ensure_warning_schema()
         expiry_settings = await get_expiry_notification_settings()
         restrict_new_members = await get_restrict_new_members_telegram()
 
@@ -121,9 +138,28 @@ def create_app():
             active_donations = int((await cur.fetchone())[0])
 
             chat_users = 0
+            form_stages = {"new": 0, "filling": 0, "saved": 0}
             if await table_exists("chat_users"):
                 await cur.execute("SELECT COUNT(*) FROM chat_users")
                 chat_users = int((await cur.fetchone())[0])
+                await cur.execute(
+                    """SELECT
+                           SUM(CASE WHEN TRIM(COALESCE(filled_form_text,'')) <> '' OR form_stage='saved' THEN 1 ELSE 0 END),
+                           SUM(CASE WHEN TRIM(COALESCE(filled_form_text,'')) = '' AND form_stage='filling' THEN 1 ELSE 0 END),
+                           SUM(CASE WHEN TRIM(COALESCE(filled_form_text,'')) = '' AND COALESCE(form_stage,'new')='new' THEN 1 ELSE 0 END)
+                       FROM chat_users"""
+                )
+                stage_row = await cur.fetchone()
+                form_stages = {
+                    "saved": int(stage_row[0] or 0),
+                    "filling": int(stage_row[1] or 0),
+                    "new": int(stage_row[2] or 0),
+                }
+
+            imported_members = 0
+            if await table_exists("admin_members"):
+                await cur.execute("SELECT COUNT(*) FROM admin_members")
+                imported_members = int((await cur.fetchone())[0])
 
             enabled_campaigns = 0
             if await table_exists("scheduled_campaigns"):
@@ -135,6 +171,8 @@ def create_app():
         dashboard_stats = {
             "active_donations": active_donations,
             "chat_users": chat_users,
+            "imported_members": imported_members,
+            "form_stages": form_stages,
             "enabled_campaigns": enabled_campaigns,
             "preexpiry_enabled": bool(expiry_settings["enabled"]),
             "preexpiry_days": int(expiry_settings["notice_days"]),

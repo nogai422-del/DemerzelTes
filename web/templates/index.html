@@ -1,104 +1,68 @@
 {% extends "base.html" %}
 {% block title %}Главная — Demerzel Control{% endblock %}
-{% block kicker %}Обзор панели{% endblock %}
-{% block page_title %}Управление Demerzel{% endblock %}
-{% block page_description %}Все прежние разделы сохранены. Выберите нужный блок, чтобы изменить тексты, уровни, донат-уведомления или плановые публикации.{% endblock %}
+{% block kicker %}Обзор системы{% endblock %}
+{% block page_title %}Панель управления Demerzel{% endblock %}
+{% block page_description %}Разделы сгруппированы по задачам: пользователи, анкета, модерация, донаты, контент и системные настройки.{% endblock %}
+{% block page_actions %}<a class="button" href="{{ url_for('members.members') }}">Открыть участников</a>{% endblock %}
 {% block content %}
 <section class="dashboard-hero">
   <div class="hero-copy">
-    <h2>Настройки бота в одном месте</h2>
-    <p>Интерфейс обновлён, но существующие вкладки, адреса страниц и логика сохранения остались прежними.</p>
+    <h2>Рабочая конфигурация бота</h2>
+    <p>Управляйте этапами анкеты, доступами, донатами и сообщениями без поиска настроек по разным страницам.</p>
     <div class="hero-badges">
-      <span class="hero-badge">9 разделов управления</span>
-      <span class="hero-badge">Адаптация под телефон</span>
-      <span class="hero-badge">Настройки оформления сохраняются</span>
+      <span class="hero-badge">3 этапа анкеты</span>
+      <span class="hero-badge">Оповещения при выдаче доната</span>
+      <span class="hero-badge">Единый каталог участников</span>
     </div>
   </div>
   <div class="hero-state">
     <span>Состояние панели</span>
     <strong>Активна</strong>
-    <span><span class="status-dot"></span> конфигурация доступна</span>
+    <span><span class="status-dot"></span> база и настройки доступны</span>
   </div>
 </section>
 
-<section class="dashboard-status-grid" aria-label="Состояние конфигурации">
-  <div class="status-card">
-    <span>Участники в базе</span>
-    <strong>{{ dashboard_stats.chat_users }}</strong>
-    <small>Записей во всех подключённых чатах</small>
-  </div>
-  <div class="status-card">
-    <span>Активные донаты</span>
-    <strong>{{ dashboard_stats.active_donations }}</strong>
-    <small>Действующих функций с конечным сроком</small>
-  </div>
-  <div class="status-card">
-    <span>Плановые рассылки</span>
-    <strong>{{ dashboard_stats.enabled_campaigns }}</strong>
-    <small>Включённых кампаний</small>
-  </div>
-  <div class="status-card">
-    <span>Предупреждения донатов</span>
-    <strong>{{ 'Вкл.' if dashboard_stats.preexpiry_enabled else 'Выкл.' }}</strong>
-    <small>За {{ dashboard_stats.preexpiry_days }} дн., пакеты от {{ dashboard_stats.preexpiry_min_days }} дн.</small>
-  </div>
-  <div class="status-card {{ 'status-card-warning' if dashboard_stats.restrict_new_members else 'status-card-ok' }}">
-    <span>Старое ограничение при входе</span>
-    <strong>{{ 'Включено' if dashboard_stats.restrict_new_members else 'Выключено' }}</strong>
-    <small>{{ 'Telegram урезает медиа-права новых участников' if dashboard_stats.restrict_new_members else 'Новый алгоритм работает без Telegram-ограничения' }}</small>
+<section class="dashboard-status-grid dashboard-status-grid-six" aria-label="Состояние конфигурации">
+  <div class="status-card"><span>Каталог участников</span><strong>{{ dashboard_stats.imported_members }}</strong><small>Профилей из CSV</small></div>
+  <div class="status-card"><span>Заполняют анкету</span><strong>{{ dashboard_stats.form_stages.filling }}</strong><small>Между /bv и /save</small></div>
+  <div class="status-card"><span>Анкета сохранена</span><strong>{{ dashboard_stats.form_stages.saved }}</strong><small>Пользователей после /save</small></div>
+  <div class="status-card"><span>Активные донаты</span><strong>{{ dashboard_stats.active_donations }}</strong><small>Действующих доступов</small></div>
+  <div class="status-card"><span>Плановые сообщения</span><strong>{{ dashboard_stats.enabled_campaigns }}</strong><small>Включённых кампаний</small></div>
+  <div class="status-card {{ 'status-card-warning' if dashboard_stats.restrict_new_members else 'status-card-ok' }}"><span>Telegram-ограничение</span><strong>{{ 'Вкл.' if dashboard_stats.restrict_new_members else 'Выкл.' }}</strong><small>{{ 'Ограничивает новых участников' if dashboard_stats.restrict_new_members else 'Работает внутренняя модерация' }}</small></div>
+</section>
+
+<section class="dashboard-section">
+  <div class="dashboard-section-head"><div><span class="page-kicker">Основная работа</span><h2>Пользователи и анкета</h2></div><p>Путь пользователя от первого сообщения до сохранённой анкеты.</p></div>
+  <div class="dashboard-grid dashboard-grid-three">
+    <a class="dashboard-card dashboard-card-primary" href="{{ url_for('members.members') }}"><span class="card-icon">☰</span><h3>Участники</h3><p>Поиск, фильтры, этап анкеты, активные донаты, CSV и быстрая выдача доступа.</p><span class="card-arrow">Открыть каталог →</span></a>
+    <a class="dashboard-card" href="{{ url_for('edit_form.edit_form') }}"><span class="card-icon">☷</span><h3>Вопросы анкеты</h3><p>Текст формы, которую бот отправляет пользователю по команде /bv.</p><span class="card-arrow">Изменить вопросы →</span></a>
+    <a class="dashboard-card dashboard-card-primary" href="{{ url_for('edit_permission.edit_permission_messages') }}"><span class="card-icon">◈</span><h3>Этапы анкеты</h3><p>Разные предупреждения до /bv, во время заполнения и после /save.</p><span class="card-arrow">Настроить этапы →</span></a>
   </div>
 </section>
 
-<section class="dashboard-grid" aria-label="Разделы админ-панели">
-  <a class="dashboard-card" href="{{ url_for('edit_form.edit_form') }}">
-    <span class="card-icon">☷</span><h3>Блок вопросов</h3>
-    <p>Текст анкеты, которую пользователь получает по команде администратора.</p>
-    <span class="card-arrow">Открыть раздел →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('edit_levels.edit_levels') }}">
-    <span class="card-icon">◆</span><h3>Уровни пользователей</h3>
-    <p>Очки, звания, сообщения, картинки и кнопки для повышения уровней.</p>
-    <span class="card-arrow">Настроить уровни →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('images.images') }}">
-    <span class="card-icon">▧</span><h3>Набор изображений</h3>
-    <p>Загрузка, просмотр и удаление изображений, используемых ботом.</p>
-    <span class="card-arrow">Открыть галерею →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('edit_permission.edit_permission_messages') }}">
-    <span class="card-icon">◈</span><h3>Отсутствие доната</h3>
-    <p>Уведомления при попытке использовать недоступные медиа и функции.</p>
-    <span class="card-arrow">Изменить уведомления →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">
-    <span class="card-icon">◷</span><h3>Сроки донатов</h3>
-    <p>Лимиты, предупреждения об окончании срока и исчерпании функций.</p>
-    <span class="card-arrow">Настроить донаты →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('edit_other.edit_other') }}">
-    <span class="card-icon">⚙</span><h3>Все остальное</h3>
-    <p>Приветствие, правила, рейтинг, мифология, напоминания и мудрость.</p>
-    <span class="card-arrow">Открыть настройки →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('scheduled_messages.scheduled_messages_list') }}">
-    <span class="card-icon">◉</span><h3>Плановые сообщения</h3>
-    <p>Создание ежедневных рассылок, вариантов контента и расписания.</p>
-    <span class="card-arrow">Управлять рассылками →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('edit_badwords.edit_badwords') }}">
-    <span class="card-icon">⊘</span><h3>Список матов</h3>
-    <p>Префиксы и точные слова для автоматической фильтрации сообщений.</p>
-    <span class="card-arrow">Редактировать словарь →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('appearance.appearance') }}">
-    <span class="card-icon">◐</span><h3>Оформление</h3>
-    <p>Светлая и тёмная темы, Liquid Glass, акцентный цвет и прозрачность кнопок.</p>
-    <span class="card-arrow">Настроить интерфейс →</span>
-  </a>
-  <a class="dashboard-card" href="{{ url_for('donation_revoke.donation_revoke') }}">
-    <span class="card-icon">−</span><h3>Снятие донатов</h3>
-    <p>Команды /delem, /delgs, /delm, /delm2, /delmax, ручные действия и журнал.</p>
-    <span class="card-arrow">Открыть управление →</span>
-  </a>
+<section class="dashboard-section">
+  <div class="dashboard-section-head"><div><span class="page-kicker">Доступы</span><h2>Донаты и уровни</h2></div><p>Выдача, сроки, лимиты, ранги и снятие прав.</p></div>
+  <div class="dashboard-grid dashboard-grid-three">
+    <a class="dashboard-card" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}"><span class="card-icon">◷</span><h3>Сроки и лимиты</h3><p>Суточные лимиты, предупреждения об окончании и исчерпании донатов.</p><span class="card-arrow">Настроить донаты →</span></a>
+    <a class="dashboard-card" href="{{ url_for('donation_revoke.donation_revoke') }}"><span class="card-icon">−</span><h3>Снятие донатов</h3><p>Команды удаления доступов, разрешённые администраторы и журнал действий.</p><span class="card-arrow">Открыть управление →</span></a>
+    <a class="dashboard-card" href="{{ url_for('edit_levels.edit_levels') }}"><span class="card-icon">◆</span><h3>Уровни и ранги</h3><p>Очки, названия уровней, изображения и сообщения повышения.</p><span class="card-arrow">Настроить уровни →</span></a>
+  </div>
+</section>
+
+<section class="dashboard-section">
+  <div class="dashboard-section-head"><div><span class="page-kicker">Публикации</span><h2>Контент и автоматизация</h2></div><p>Тексты, команды, изображения и расписание сообщений.</p></div>
+  <div class="dashboard-grid">
+    <a class="dashboard-card" href="{{ url_for('message_settings.message_settings') }}"><span class="card-icon">✎</span><h3>Команды и ответы</h3><p>Шаблоны команд, тексты и параметры их удаления.</p><span class="card-arrow">Редактировать →</span></a>
+    <a class="dashboard-card" href="{{ url_for('scheduled_messages.scheduled_messages_list') }}"><span class="card-icon">◉</span><h3>Плановые сообщения</h3><p>Ежедневные кампании, варианты публикаций и время отправки.</p><span class="card-arrow">Открыть расписание →</span></a>
+    <a class="dashboard-card" href="{{ url_for('images.images') }}"><span class="card-icon">▧</span><h3>Изображения</h3><p>Галерея файлов, используемых уровнями, уведомлениями и сообщениями.</p><span class="card-arrow">Открыть галерею →</span></a>
+    <a class="dashboard-card" href="{{ url_for('edit_other.edit_other') }}"><span class="card-icon">⚙</span><h3>Общие тексты</h3><p>Приветствие, правила, рейтинг, мифология и мудрость.</p><span class="card-arrow">Открыть тексты →</span></a>
+  </div>
+</section>
+
+<section class="dashboard-section dashboard-section-compact">
+  <div class="dashboard-grid dashboard-grid-three">
+    <a class="dashboard-card dashboard-card-compact" href="{{ url_for('edit_badwords.edit_badwords') }}"><span class="card-icon">⊘</span><h3>Словарь ограничений</h3><p>Запрещённые слова и префиксы.</p><span class="card-arrow">Открыть →</span></a>
+    <a class="dashboard-card dashboard-card-compact" href="{{ url_for('appearance.appearance') }}"><span class="card-icon">◐</span><h3>Оформление панели</h3><p>Тема, стиль, акцент и прозрачность.</p><span class="card-arrow">Настроить →</span></a>
+  </div>
 </section>
 {% endblock %}
