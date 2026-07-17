@@ -59,6 +59,21 @@ def ensure_ui_settings_schema() -> None:
             )
             """
         )
+        existing_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(admin_ui_settings)")
+        }
+        migrations = {
+            "theme": "TEXT NOT NULL DEFAULT 'dark'",
+            "accent_color": "TEXT NOT NULL DEFAULT '#7c6cff'",
+            "button_opacity": "REAL NOT NULL DEFAULT 0.90",
+            "ui_style": "TEXT NOT NULL DEFAULT 'classic'",
+        }
+        for column, definition in migrations.items():
+            if column not in existing_columns:
+                conn.execute(
+                    f'ALTER TABLE admin_ui_settings ADD COLUMN "{column}" {definition}'
+                )
+
         conn.execute(
             """
             INSERT OR IGNORE INTO admin_ui_settings (

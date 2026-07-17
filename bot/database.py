@@ -39,10 +39,49 @@ def _has_user_tables(path: str) -> bool:
         return False
 
 
+def _quote_ident(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _add_missing_columns(
+    target: sqlite3.Connection, seed: sqlite3.Connection, table: str
+) -> None:
+    """Добавляет столбцы из эталонной БД в старую БД Bothost.
+
+    SQLite не поддерживает ADD COLUMN с PRIMARY KEY/UNIQUE. Для обычных
+    runtime-полей переносим тип, DEFAULT и NOT NULL, когда это допустимо.
+    Если старое хранилище уже содержит строки, NOT NULL без DEFAULT
+    добавляется как nullable — это безопаснее, чем падение всей панели.
+    """
+    quoted = _quote_ident(table)
+    target_columns = {row[1] for row in target.execute(f"PRAGMA table_info({quoted})")}
+    seed_columns = seed.execute(f"PRAGMA table_info({quoted})").fetchall()
+    row_count = target.execute(f"SELECT COUNT(*) FROM {quoted}").fetchone()[0]
+
+    for _cid, name, col_type, not_null, default_value, primary_key in seed_columns:
+        if name in target_columns:
+            continue
+        parts = [_quote_ident(name)]
+        if col_type:
+            parts.append(col_type)
+        if default_value is not None:
+            parts.extend(["DEFAULT", str(default_value)])
+        if not_null and (default_value is not None or row_count == 0):
+            parts.append("NOT NULL")
+        # PRIMARY KEY нельзя добавлять через ALTER TABLE; такие столбцы
+        # встречаются только в новых таблицах, которые создаются целиком.
+        target.execute(
+            f"ALTER TABLE {quoted} ADD COLUMN {' '.join(parts)}"
+        )
+        target_columns.add(name)
+        print(f"DB migration: added {table}.{name}")
+
+
 def _merge_seed_schema(target_path: str, seed_path: str) -> None:
-    """Добавляет отсутствующую схему/настройки, сохраняя имеющиеся данные."""
-    with sqlite3.connect(target_path, timeout=15) as target, sqlite3.connect(seed_path) as seed:
-        target.execute("PRAGMA busy_timeout=15000")
+    """Дополняет старую persistent-БД таблицами, столбцами и индексами."""
+    with sqlite3.connect(target_path, timeout=30) as target, sqlite3.connect(seed_path) as seed:
+        target.execute("PRAGMA busy_timeout=30000")
+        target.execute("PRAGMA foreign_keys=OFF")
         existing = {
             row[0]
             for row in target.execute(
@@ -59,18 +98,33 @@ def _merge_seed_schema(target_path: str, seed_path: str) -> None:
         ).fetchall()
 
         newly_created: list[str] = []
+        # Сначала создаём только таблицы. Индексы могут ссылаться на столбцы,
+        # которых ещё нет в старой базе, поэтому создаются после ALTER TABLE.
         for obj_type, name, _table_name, sql in seed_objects:
             if obj_type == "table" and name not in existing:
                 target.execute(sql)
                 existing.add(name)
                 newly_created.append(name)
-            elif obj_type == "index":
-                # Индексы из sqlite_master могут не содержать IF NOT EXISTS.
-                try:
-                    target.execute(sql)
-                except sqlite3.OperationalError as exc:
-                    if "already exists" not in str(exc).lower():
-                        raise
+
+        # Для таблиц из старого volume добавляем новые столбцы.
+        for table in sorted(existing):
+            if table.startswith("sqlite_") or table in newly_created:
+                continue
+            if seed.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (table,),
+            ).fetchone():
+                _add_missing_columns(target, seed, table)
+
+        # Теперь безопасно создаём недостающие индексы.
+        for obj_type, _name, _table_name, sql in seed_objects:
+            if obj_type != "index":
+                continue
+            try:
+                target.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "already exists" not in str(exc).lower():
+                    raise
 
         # Начальные значения нужны только для таблиц, созданных сейчас.
         for table in newly_created:
@@ -113,6 +167,12 @@ def _initialize_database_file() -> None:
             Path(absolute_path).touch()
 
         _INITIALIZED_PATHS.add(absolute_path)
+
+
+def initialize_database() -> None:
+    """Публичная синхронная миграция для запуска до первого HTTP-запроса."""
+    _initialize_database_file()
+
 
 
 async def _open_conn() -> aiosqlite.Connection:

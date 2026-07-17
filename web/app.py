@@ -3,12 +3,16 @@
 from flask import Flask, render_template, redirect, session
 from dotenv import load_dotenv
 from env_config import require_env
+from bot.database import initialize_database
 
 load_dotenv()
 
 
 # Создает Flask-приложение и регистрирует маршруты.
 def create_app():
+    # Миграция persistent-БД выполняется до регистрации context processor.
+    # Иначе старая таблица настроек интерфейса ломает даже страницу /login.
+    initialize_database()
     app = Flask(__name__)
     app.secret_key = require_env("FLASK_SECRET_KEY")
 
@@ -51,6 +55,11 @@ def create_app():
     @app.context_processor
     def inject_ui_settings():
         return {"ui_settings": get_ui_settings()}
+
+    @app.errorhandler(500)
+    def internal_error(error):
+        app.logger.exception("Admin panel request failed: %s", error)
+        return render_template("500.html"), 500
 
     @app.get("/health")
     def health():
