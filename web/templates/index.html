@@ -21,12 +21,35 @@
   </div>
 </section>
 
+<section class="dashboard-status-grid" aria-label="Состояние конфигурации">
+  <div class="status-card">
+    <span>Участники в базе</span>
+    <strong>{{ dashboard_stats.chat_users }}</strong>
+    <small>Записей во всех подключённых чатах</small>
+  </div>
+  <div class="status-card">
+    <span>Активные донаты</span>
+    <strong>{{ dashboard_stats.active_donations }}</strong>
+    <small>Действующих функций с конечным сроком</small>
+  </div>
+  <div class="status-card">
+    <span>Плановые рассылки</span>
+    <strong>{{ dashboard_stats.enabled_campaigns }}</strong>
+    <small>Включённых кампаний</small>
+  </div>
+  <div class="status-card">
+    <span>Предупреждения донатов</span>
+    <strong>{{ 'Вкл.' if dashboard_stats.preexpiry_enabled else 'Выкл.' }}</strong>
+    <small>За {{ dashboard_stats.preexpiry_days }} дн., пакеты от {{ dashboard_stats.preexpiry_min_days }} дн.</small>
+  </div>
+  <div class="status-card {{ 'status-card-warning' if dashboard_stats.restrict_new_members else 'status-card-ok' }}">
+    <span>Старое ограничение при входе</span>
+    <strong>{{ 'Включено' if dashboard_stats.restrict_new_members else 'Выключено' }}</strong>
+    <small>{{ 'Telegram урезает медиа-права новых участников' if dashboard_stats.restrict_new_members else 'Новый алгоритм работает без Telegram-ограничения' }}</small>
+  </div>
+</section>
+
 <section class="dashboard-grid" aria-label="Разделы админ-панели">
-  <a class="dashboard-card" href="{{ url_for('members.members') }}">
-    <span class="card-icon">◎</span><h3>Участники</h3>
-    <p>CSV-импорт списка, поиск пользователей и выдача донатов.</p>
-    <span class="card-arrow">Открыть участников →</span>
-  </a>
   <a class="dashboard-card" href="{{ url_for('edit_form.edit_form') }}">
     <span class="card-icon">☷</span><h3>Блок вопросов</h3>
     <p>Текст анкеты, которую пользователь получает по команде администратора.</p>
@@ -71,6 +94,11 @@
     <span class="card-icon">◐</span><h3>Оформление</h3>
     <p>Светлая и тёмная темы, Liquid Glass, акцентный цвет и прозрачность кнопок.</p>
     <span class="card-arrow">Настроить интерфейс →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('donation_revoke.donation_revoke') }}">
+    <span class="card-icon">−</span><h3>Снятие донатов</h3>
+    <p>Команды /delem, /delgs, /delm, /delm2, /delmax, ручные действия и журнал.</p>
+    <span class="card-arrow">Открыть управление →</span>
   </a>
 </section>
 {% endblock %}

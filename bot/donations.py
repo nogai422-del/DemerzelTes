@@ -15,12 +15,13 @@ from aiogram.types import (
 from aiogram.utils.formatting import html_decoration as hd
 
 from bot.database import db
-from bot.message_queue import bot_send_message, bot_send_photo_to_chat
+from bot.message_queue import bot_send_message, bot_send_photo_to_chat, bot_send_animation_to_chat
 from bot.warning_state import replace_warning
 from bot.utils import resolve_bot_image_path
 
 DAY_SECONDS = 86400
-PREEXPIRY_SECONDS = 3 * DAY_SECONDS
+DEFAULT_LONG_PACKAGE_MIN_DAYS = 28
+DEFAULT_PREEXPIRY_NOTICE_DAYS = 3
 CHECK_INTERVAL_SECONDS = 60
 _SCHEMA_READY = False
 
@@ -32,7 +33,7 @@ CATEGORY_TITLES = {
 }
 
 EVENT_TITLES = {
-    "preexpiry": "За 3 дня до окончания",
+    "preexpiry": "Предупреждение до окончания",
     "expired": "Срок истёк",
     "limit_exhausted": "Дневной лимит исчерпан",
     "denied": "Попытка реакции без Медиа 2",
@@ -46,21 +47,21 @@ CATEGORY_EVENT_TYPES = {
 }
 
 DEFAULT_TEMPLATES = {
-    ("voice", "preexpiry"): "{user}, действие доната на голосовые сообщения закончится через 3 дня — {valid_until}.",
+    ("voice", "preexpiry"): "{user}, действие доната на голосовые сообщения закончится через {days_left} дн. — {valid_until}.",
     ("voice", "expired"): "{user}, срок действия доната на голосовые сообщения истёк.",
     ("voice", "limit_exhausted"): (
         "{user}, дневной лимит голосовых сообщений ({limit}) исчерпан. "
         "Счётчик сбросится в начале следующего дня."
     ),
-    ("emoji", "preexpiry"): "{user}, действие доната на смайлики закончится через 3 дня — {valid_until}.",
+    ("emoji", "preexpiry"): "{user}, действие доната на смайлики закончится через {days_left} дн. — {valid_until}.",
     ("emoji", "expired"): "{user}, срок действия доната на смайлики истёк.",
     ("emoji", "limit_exhausted"): (
         "{user}, дневной лимит смайликов ({limit}) исчерпан. "
         "Счётчик сбросится в начале следующего дня."
     ),
-    ("tag", "preexpiry"): "{user}, действие доната на тег закончится через 3 дня — {valid_until}.",
+    ("tag", "preexpiry"): "{user}, действие доната на тег закончится через {days_left} дн. — {valid_until}.",
     ("tag", "expired"): "{user}, срок действия доната на тег истёк.",
-    ("video_note", "preexpiry"): "{user}, действие доната на кружки закончится через 3 дня — {valid_until}.",
+    ("video_note", "preexpiry"): "{user}, действие доната на кружки закончится через {days_left} дн. — {valid_until}.",
     ("video_note", "expired"): "{user}, срок действия доната на кружки истёк.",
     ("video_note", "limit_exhausted"): (
         "{user}, дневной лимит кружков ({limit}) исчерпан. "
@@ -141,7 +142,10 @@ async def ensure_donation_schema() -> None:
                 emoji_daily_limit        INTEGER NOT NULL DEFAULT 50,
                 video_note_daily_limit   INTEGER NOT NULL DEFAULT 10,
                 viewd_delete_seconds     INTEGER NOT NULL DEFAULT 30,
-                viewmd_delete_seconds    INTEGER NOT NULL DEFAULT 30
+                viewmd_delete_seconds    INTEGER NOT NULL DEFAULT 30,
+                preexpiry_enabled        INTEGER NOT NULL DEFAULT 1,
+                long_package_min_days    INTEGER NOT NULL DEFAULT 28,
+                preexpiry_notice_days    INTEGER NOT NULL DEFAULT 3
             )
             """
         )
@@ -159,13 +163,26 @@ async def ensure_donation_schema() -> None:
             await cur.execute(
                 "ALTER TABLE donation_settings ADD COLUMN viewmd_delete_seconds INTEGER NOT NULL DEFAULT 30"
             )
+        if "preexpiry_enabled" not in settings_columns:
+            await cur.execute(
+                "ALTER TABLE donation_settings ADD COLUMN preexpiry_enabled INTEGER NOT NULL DEFAULT 1"
+            )
+        if "long_package_min_days" not in settings_columns:
+            await cur.execute(
+                "ALTER TABLE donation_settings ADD COLUMN long_package_min_days INTEGER NOT NULL DEFAULT 28"
+            )
+        if "preexpiry_notice_days" not in settings_columns:
+            await cur.execute(
+                "ALTER TABLE donation_settings ADD COLUMN preexpiry_notice_days INTEGER NOT NULL DEFAULT 3"
+            )
 
         await cur.execute(
             """
             INSERT OR IGNORE INTO donation_settings (
                 id, voice_daily_limit, emoji_daily_limit, video_note_daily_limit,
-                viewd_delete_seconds, viewmd_delete_seconds
-            ) VALUES (1, 20, 50, 10, 30, 30)
+                viewd_delete_seconds, viewmd_delete_seconds,
+                preexpiry_enabled, long_package_min_days, preexpiry_notice_days
+            ) VALUES (1, 20, 50, 10, 30, 30, 1, 28, 3)
             """
         )
 
@@ -193,6 +210,30 @@ async def ensure_donation_schema() -> None:
                 ) VALUES (?, ?, ?, ?, '', '', '', '', '')
                 """,
                 (category, event_type, title, message),
+            )
+
+        # Переводим только прежние стандартные шаблоны предупреждений на
+        # настраиваемую подстановку {days_left}. Пользовательские тексты не
+        # меняем.
+        old_preexpiry_templates = {
+            "voice": "{user}, действие доната на голосовые сообщения закончится через 3 дня — {valid_until}.",
+            "emoji": "{user}, действие доната на смайлики закончится через 3 дня — {valid_until}.",
+            "tag": "{user}, действие доната на тег закончится через 3 дня — {valid_until}.",
+            "video_note": "{user}, действие доната на кружки закончится через 3 дня — {valid_until}.",
+        }
+        for category, old_message in old_preexpiry_templates.items():
+            await cur.execute(
+                """
+                UPDATE donation_notification_templates
+                SET title = ?, message = ?
+                WHERE category = ? AND event_type = 'preexpiry' AND message = ?
+                """,
+                (
+                    f"{CATEGORY_TITLES[category]} — {EVENT_TITLES['preexpiry']}",
+                    DEFAULT_TEMPLATES[(category, "preexpiry")],
+                    category,
+                    old_message,
+                ),
             )
 
         # Обновляем только прежний стандартный текст реакции. Пользовательский
@@ -339,6 +380,64 @@ async def extend_donation_grant(
     return valid_until, package_days
 
 
+async def revoke_donation_grant(chat_id: int, user_id: int, category: str) -> bool:
+    """Удаляет один срочный донат и его суточный счётчик.
+
+    Возвращает ``True``, если активная или сохранённая выдача существовала.
+    """
+    if category not in CATEGORY_TITLES:
+        raise ValueError(f"Неизвестная категория доната: {category}")
+
+    await ensure_donation_schema()
+    async with db() as cur:
+        await cur.execute(
+            """
+            SELECT 1 FROM donation_grants
+            WHERE chat_id = ? AND user_id = ? AND category = ?
+            """,
+            (chat_id, user_id, category),
+        )
+        existed = await cur.fetchone() is not None
+        await cur.execute(
+            """
+            DELETE FROM donation_grants
+            WHERE chat_id = ? AND user_id = ? AND category = ?
+            """,
+            (chat_id, user_id, category),
+        )
+        await cur.execute(
+            """
+            DELETE FROM donation_usage
+            WHERE chat_id = ? AND user_id = ? AND category = ?
+            """,
+            (chat_id, user_id, category),
+        )
+    return existed
+
+
+async def revoke_all_donation_grants(chat_id: int, user_id: int) -> list[str]:
+    """Удаляет все срочные донаты пользователя и возвращает их категории."""
+    await ensure_donation_schema()
+    async with db() as cur:
+        await cur.execute(
+            """
+            SELECT category FROM donation_grants
+            WHERE chat_id = ? AND user_id = ?
+            """,
+            (chat_id, user_id),
+        )
+        categories = [str(row[0]) for row in await cur.fetchall()]
+        await cur.execute(
+            "DELETE FROM donation_grants WHERE chat_id = ? AND user_id = ?",
+            (chat_id, user_id),
+        )
+        await cur.execute(
+            "DELETE FROM donation_usage WHERE chat_id = ? AND user_id = ?",
+            (chat_id, user_id),
+        )
+    return categories
+
+
 async def has_active_donation(chat_id: int, user_id: int, category: str) -> bool:
     await ensure_donation_schema()
     now = int(time.time())
@@ -393,6 +492,54 @@ async def set_usage_limits(*, voice: int, emoji: int, video_note: int) -> None:
                 video_note_daily_limit = excluded.video_note_daily_limit
             """,
             (voice_limit, emoji_limit, video_note_limit),
+        )
+
+
+async def get_expiry_notification_settings() -> dict[str, int | bool]:
+    """Возвращает настройки предупреждений для долгих донат-пакетов."""
+    await ensure_donation_schema()
+    async with db() as cur:
+        await cur.execute(
+            """
+            SELECT preexpiry_enabled, long_package_min_days, preexpiry_notice_days
+            FROM donation_settings
+            WHERE id = 1
+            """
+        )
+        row = await cur.fetchone()
+
+    return {
+        "enabled": bool(int(row[0] if row else 1)),
+        "min_package_days": max(
+            DEFAULT_LONG_PACKAGE_MIN_DAYS,
+            min(int(row[1] if row else DEFAULT_LONG_PACKAGE_MIN_DAYS), 3650),
+        ),
+        "notice_days": max(
+            2,
+            min(int(row[2] if row else DEFAULT_PREEXPIRY_NOTICE_DAYS), 3),
+        ),
+    }
+
+
+async def set_expiry_notification_settings(
+    *, enabled: bool, min_package_days: int, notice_days: int
+) -> None:
+    """Сохраняет порог долгого пакета и срок предварительного оповещения."""
+    await ensure_donation_schema()
+    min_days = max(DEFAULT_LONG_PACKAGE_MIN_DAYS, min(int(min_package_days), 3650))
+    lead_days = max(2, min(int(notice_days), 3))
+    async with db() as cur:
+        await cur.execute(
+            """
+            INSERT INTO donation_settings (
+                id, preexpiry_enabled, long_package_min_days, preexpiry_notice_days
+            ) VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                preexpiry_enabled = excluded.preexpiry_enabled,
+                long_package_min_days = excluded.long_package_min_days,
+                preexpiry_notice_days = excluded.preexpiry_notice_days
+            """,
+            (1 if enabled else 0, min_days, lead_days),
         )
 
 
@@ -645,7 +792,9 @@ def _build_keyboard(template: dict[str, Any]) -> InlineKeyboardMarkup | None:
     if not buttons:
         return None
 
-    return InlineKeyboardMarkup(inline_keyboard=[buttons])
+    # Каждая кнопка занимает отдельную строку. Так длинные подписи не
+    # сталкиваются друг с другом и не выходят за границы сообщения на телефоне.
+    return InlineKeyboardMarkup(inline_keyboard=[[button] for button in buttons])
 
 
 async def _get_user_name(bot, chat_id: int, user_id: int) -> str:
@@ -667,12 +816,18 @@ def _render_message(
     event_type: str,
     limit: int | None = None,
     used_today: int | None = None,
+    now: int | None = None,
 ) -> str:
     safe_name = hd.quote(full_name)
     user_link = f'<a href="tg://user?id={user_id}">{safe_name}</a>'
     category_title = CATEGORY_TITLES.get(category, "Реакции" if category == "reaction" else category)
     valid_until_text = time.strftime("%d.%m.%Y %H:%M", time.localtime(valid_until))
-    days_left = 3 if event_type == "preexpiry" else 0
+    current_time = int(time.time()) if now is None else int(now)
+    days_left = (
+        max(1, math.ceil(max(0, valid_until - current_time) / DAY_SECONDS))
+        if event_type == "preexpiry"
+        else 0
+    )
 
     result = template_message or DEFAULT_TEMPLATES.get((category, event_type), "{user}")
     replacements = {
@@ -735,16 +890,22 @@ async def _send_notification(
         reply_kwargs["message_thread_id"] = int(message_thread_id)
 
     if full_image_path and os.path.isfile(full_image_path):
-        sent = await bot_send_photo_to_chat(
-            bot,
-            chat_id,
-            FSInputFile(full_image_path),
+        media_kwargs = dict(
             wait=True,
             caption=text,
             parse_mode="HTML",
             reply_markup=keyboard,
             **reply_kwargs,
         )
+        # GIF нельзя надёжно отправлять через sendPhoto: Telegram ждёт animation.
+        if os.path.splitext(full_image_path)[1].lower() == ".gif":
+            sent = await bot_send_animation_to_chat(
+                bot, chat_id, FSInputFile(full_image_path), **media_kwargs
+            )
+        else:
+            sent = await bot_send_photo_to_chat(
+                bot, chat_id, FSInputFile(full_image_path), **media_kwargs
+            )
     else:
         sent = await bot_send_message(
             bot,
@@ -783,14 +944,22 @@ async def send_test_donation_notification(
 
     await ensure_donation_schema()
     now = int(time.time())
-    valid_until = now + PREEXPIRY_SECONDS if event_type == "preexpiry" else now
+    expiry_settings = await get_expiry_notification_settings()
+    notice_days = int(expiry_settings["notice_days"])
+    valid_until = (
+        now + notice_days * DAY_SECONDS if event_type == "preexpiry" else now
+    )
 
     grant = {
         "chat_id": int(chat_id),
         "user_id": int(user_id),
         "category": category,
         "valid_until": valid_until,
-        "package_days": 28 if event_type == "preexpiry" else 1,
+        "package_days": (
+            int(expiry_settings["min_package_days"])
+            if event_type == "preexpiry"
+            else 1
+        ),
     }
     limits = await get_usage_limits()
     await _send_notification(
@@ -879,22 +1048,32 @@ async def send_reaction_denied_notification(
     )
 
 
-async def _load_due_grants(event_type: str, now: int) -> list[Any]:
+async def _load_due_grants(
+    event_type: str,
+    now: int,
+    *,
+    min_package_days: int = DEFAULT_LONG_PACKAGE_MIN_DAYS,
+    notice_days: int = DEFAULT_PREEXPIRY_NOTICE_DAYS,
+) -> list[Any]:
     async with db() as cur:
         if event_type == "preexpiry":
+            notice_seconds = max(2, min(int(notice_days), 3)) * DAY_SECONDS
+            package_threshold = max(
+                DEFAULT_LONG_PACKAGE_MIN_DAYS, int(min_package_days)
+            )
             await cur.execute(
                 """
                 SELECT chat_id, user_id, category, valid_until, package_days, daily_limit
                 FROM donation_grants
                 WHERE category IN ('voice', 'emoji', 'tag', 'video_note')
-                  AND package_days >= 28
+                  AND package_days >= ?
                   AND preexpiry_sent = 0
                   AND expired_sent = 0
                   AND valid_until > ?
                   AND valid_until <= ?
                 ORDER BY valid_until ASC
                 """,
-                (now, now + PREEXPIRY_SECONDS),
+                (package_threshold, now, now + notice_seconds),
             )
         else:
             await cur.execute(
@@ -953,10 +1132,19 @@ async def _release_grant(grant: Any, event_type: str) -> None:
 async def process_due_donation_notifications(bot) -> None:
     await ensure_donation_schema()
     now = int(time.time())
+    expiry_settings = await get_expiry_notification_settings()
 
     # Сначала истёкшие пакеты, затем предупреждения по ещё активным.
     for event_type in ("expired", "preexpiry"):
-        grants = await _load_due_grants(event_type, now)
+        if event_type == "preexpiry" and not expiry_settings["enabled"]:
+            continue
+
+        grants = await _load_due_grants(
+            event_type,
+            now,
+            min_package_days=int(expiry_settings["min_package_days"]),
+            notice_days=int(expiry_settings["notice_days"]),
+        )
         for grant in grants:
             if not await _claim_grant(grant, event_type):
                 continue

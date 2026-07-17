@@ -15,6 +15,7 @@ ALLOWED = {
     "permission": os.path.join(BASE_DIR, "bot/images/permission_images"),
     "scheduled": os.path.join(BASE_DIR, "bot/images/scheduled_images"),
     "donation": os.path.join(BASE_DIR, "bot/images/donation_images"),
+    "message_media": os.path.join(BASE_DIR, "bot/images/message_media"),
 }
 
 MAX_SIDE = 2048
@@ -35,6 +36,12 @@ def serve_image():
 
     folder = ALLOWED[type_]
     original = os.path.join(folder, file)
+
+    # Медиа шаблонов отдаём без преобразования: GIF должен остаться анимацией.
+    if type_ == "message_media":
+        if not os.path.isfile(original):
+            abort(404)
+        return send_file(original, conditional=True, max_age=3600)
 
     base_name, ext = os.path.splitext(file)
     ext = ext.lower().lstrip(".")

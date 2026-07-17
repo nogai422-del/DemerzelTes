@@ -132,3 +132,14 @@ async def bot_send_document(bot, chat_id: int, document, *, wait: bool = False, 
         return await coro
     _fire(coro)
     return None
+
+# Отправляет GIF/анимацию в указанный чат через очередь отправки.
+async def bot_send_animation_to_chat(bot, chat_id: int, animation, *, wait: bool = False, **kwargs) -> Optional[Any]:
+    if not _is_group_chat_id(chat_id):
+        return None
+
+    coro = _send(chat_id, bot.send_animation, chat_id, animation, **kwargs)
+    if wait:
+        return await coro
+    _fire(coro)
+    return None

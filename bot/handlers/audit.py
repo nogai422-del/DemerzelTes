@@ -10,6 +10,7 @@ from aiogram.enums import ChatMemberStatus
 from aiogram.utils.formatting import html_decoration as hd
 
 from bot.database import db
+from bot.settings import get_restrict_new_members_telegram
 from bot.message_queue import bot_send_message
 from bot.utils import send_welcome_for_member
 from env_config import require_int_env
@@ -239,31 +240,37 @@ async def log_member_changes(event: ChatMemberUpdated):
             else:
                 event_tag = "member_rejoined"
 
-        # При входе даем только текстовые сообщения на уровне Telegram.
-        # Это не заменяет внутренние правила модерации, а задает базовые права чата.
-        try:
-            await event.bot.restrict_chat_member(
-                chat_id=chat.id,
-                user_id=user.id,
-                permissions=ChatPermissions(
-                    can_send_messages=True,
-                    can_send_photos=False,
-                    can_send_videos=False,
-                    can_send_video_notes=False,
-                    can_send_audios=False,
-                    can_send_voice_notes=False,
-                    can_send_documents=False,
-                    can_send_other_messages=False,
-                    can_add_web_page_previews=False,
-                    can_send_polls=False,
-                    can_invite_users=False,
-                    can_pin_messages=False,
-                    can_change_info=False,
-                ),
-                use_independent_chat_permissions=True,
-            )
-        except Exception as e:
-            print(f"Не удалось выставить text-only права при входе user_id={user.id}: {e}")
+        # Старый режим принудительно урезал права участника средствами Telegram
+        # сразу после входа. По умолчанию он выключен, чтобы не конфликтовать с
+        # новым внутренним алгоритмом доступов. Код сохранён и доступен как
+        # аварийный переключатель в админ-панели.
+        if await get_restrict_new_members_telegram():
+            try:
+                await event.bot.restrict_chat_member(
+                    chat_id=chat.id,
+                    user_id=user.id,
+                    permissions=ChatPermissions(
+                        can_send_messages=True,
+                        can_send_photos=False,
+                        can_send_videos=False,
+                        can_send_video_notes=False,
+                        can_send_audios=False,
+                        can_send_voice_notes=False,
+                        can_send_documents=False,
+                        can_send_other_messages=False,
+                        can_add_web_page_previews=False,
+                        can_send_polls=False,
+                        can_invite_users=False,
+                        can_pin_messages=False,
+                        can_change_info=False,
+                    ),
+                    use_independent_chat_permissions=True,
+                )
+            except Exception as e:
+                print(
+                    "Не удалось выставить text-only права при входе "
+                    f"user_id={user.id}: {e}"
+                )
 
         if event.invite_link and event.invite_link.creator:
             change_lines.append(f"Added by: {user_link(event.invite_link.creator)}")

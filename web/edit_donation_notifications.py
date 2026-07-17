@@ -14,8 +14,10 @@ from bot.donations import (
     EVENT_TITLES,
     ensure_donation_schema,
     get_donation_view_timers,
+    get_expiry_notification_settings,
     get_usage_limits,
     set_donation_view_timers,
+    set_expiry_notification_settings,
     set_usage_limits,
 )
 
@@ -80,6 +82,33 @@ async def edit_donation_notifications():
             ),
             viewmd=_timer_seconds(
                 "view_timers[viewmd]", current_timers.get("viewmd", 30)
+            ),
+        )
+
+        current_expiry_settings = await get_expiry_notification_settings()
+
+        def _bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+            try:
+                return max(
+                    minimum,
+                    min(int(request.form.get(name, default)), maximum),
+                )
+            except (TypeError, ValueError):
+                return default
+
+        await set_expiry_notification_settings(
+            enabled=request.form.get("expiry_settings[enabled]") == "1",
+            min_package_days=_bounded_int(
+                "expiry_settings[min_package_days]",
+                int(current_expiry_settings.get("min_package_days", 28)),
+                28,
+                3650,
+            ),
+            notice_days=_bounded_int(
+                "expiry_settings[notice_days]",
+                int(current_expiry_settings.get("notice_days", 3)),
+                2,
+                3,
             ),
         )
 
@@ -160,6 +189,7 @@ async def edit_donation_notifications():
 
     limits = await get_usage_limits()
     view_timers = await get_donation_view_timers()
+    expiry_settings = await get_expiry_notification_settings()
 
     by_key = {(row[0], row[1]): row for row in rows}
     categories = []
@@ -196,6 +226,7 @@ async def edit_donation_notifications():
         categories=categories,
         limits=limits,
         view_timers=view_timers,
+        expiry_settings=expiry_settings,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),
         csrf_token=session["csrf_token"],

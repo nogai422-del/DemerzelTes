@@ -1,6 +1,8 @@
 # Редактирование префиксов и точных запрещенных слов через админ-панель.
 
 import re
+import hmac
+import secrets
 from pathlib import Path
 
 from flask import Blueprint, redirect, render_template, request, session
@@ -38,7 +40,16 @@ async def edit_badwords():
     if "username" not in session:
         return redirect("/login")
 
+    session.setdefault("csrf_token", secrets.token_urlsafe(32))
+
     if request.method == "POST":
+        sent_token = request.form.get("csrf_token", "")
+        session_token = session.get("csrf_token", "")
+        if not sent_token or not session_token or not hmac.compare_digest(
+            sent_token, session_token
+        ):
+            return redirect("/edit_badwords?csrf=0")
+
         prefixes_raw = request.form.get("prefixes", "")
         exact_raw = request.form.get("exact_words", "")
 
@@ -77,4 +88,6 @@ async def edit_badwords():
         exact_words_content=" ".join(exact_words),
         textarea_height=textarea_height,
         saved=request.args.get("saved"),
+        csrf=request.args.get("csrf"),
+        csrf_token=session["csrf_token"],
     )

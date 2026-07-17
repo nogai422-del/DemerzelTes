@@ -1,62 +1,39 @@
 {% extends "base.html" %}
-{% block title %}Участники — Demerzel Control{% endblock %}
-{% block kicker %}Управление сообществом{% endblock %}
+{% block title %}Участники — Demerzel{% endblock %}
+{% block kicker %}Данные сообщества{% endblock %}
 {% block page_title %}Участники{% endblock %}
-{% block page_description %}Импортируйте список из CSV, найдите участника и выдайте ему донат-пакет.{% endblock %}
+{% block page_description %}Импорт CSV, поиск пользователей и выдача донат-доступов.{% endblock %}
 {% block notices %}
-  {% if imported %}<div class="notice success">Импортировано записей: {{ imported }}</div>{% endif %}
-  {% if granted %}<div class="notice success">Донат выдан пользователю {{ granted }}</div>{% endif %}
-  {% if csrf == '0' %}<div class="notice error">Сессия формы устарела. Повторите действие.</div>{% endif %}
+  {% if notice %}<div class="notice success">Готово: {{ notice }}</div>{% endif %}
   {% if error %}<div class="notice error">Ошибка: {{ error }}</div>{% endif %}
 {% endblock %}
 {% block content %}
 <section class="panel-card">
-  <h2>Загрузка CSV</h2>
-  <p>Поддерживаются столбцы образца: user_id, username, name, message_count, telegram_status и даты статуса.</p>
+  <h2>Импорт CSV</h2>
   <form method="post" enctype="multipart/form-data" class="form-grid">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="action" value="import_csv">
-    <label class="field"><span>CSV-файл</span><input type="file" name="csv_file" accept=".csv,text/csv" required></label>
-    <button class="primary-button" type="submit">Импортировать участников</button>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="import_csv">
+    <label>CSV-файл<input type="file" name="csv_file" accept=".csv,text/csv" required></label>
+    <label>ID чата (необязательно)<input type="number" name="chat_id" placeholder="-100..."></label>
+    <button type="submit">Импортировать</button>
   </form>
+  <p class="muted">Поддерживаются UTF-8 и Windows-1251. Обязательная колонка: user_id.</p>
 </section>
-
 <section class="panel-card">
-  <form method="get" class="form-grid compact-grid">
-    <label class="field"><span>Поиск</span><input type="search" name="q" value="{{ query }}" placeholder="ID, имя или username"></label>
-    <button class="secondary-button" type="submit">Найти</button>
+  <h2>Выдать донат</h2>
+  <form method="post" class="form-grid">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="grant">
+    <label>ID чата<input type="number" name="chat_id" list="chat-ids" required></label>
+    <datalist id="chat-ids">{% for id in chat_ids %}<option value="{{ id }}">{% endfor %}</datalist>
+    <label>ID пользователя<input type="number" name="user_id" required></label>
+    <label>Тип<select name="category">{% for key,title in categories.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}</select></label>
+    <label>Дней<input type="number" name="days" min="1" value="30" required></label>
+    <label>Лимит в сутки<input type="number" name="daily_limit" min="0" value="0"></label>
+    <button type="submit">Выдать</button>
   </form>
 </section>
-
-<section class="panel-card table-card">
-  <div class="table-wrap">
-    <table class="admin-table">
-      <thead><tr><th>ID</th><th>Участник</th><th>Сообщения</th><th>Статус</th><th>Активные донаты</th><th>Выдать донат</th></tr></thead>
-      <tbody>
-      {% for member in members %}
-        <tr>
-          <td><code>{{ member[0] }}</code></td>
-          <td><strong>{{ member[2] or 'Без имени' }}</strong><br><small>{% if member[1] %}@{{ member[1] }}{% endif %}</small></td>
-          <td>{{ member[3] }}</td>
-          <td>{{ member[4] or '—' }}</td>
-          <td>{{ member[5] or 'Нет' }}</td>
-          <td>
-            <form method="post" class="inline-grant-form">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <input type="hidden" name="action" value="grant_donation">
-              <input type="hidden" name="user_id" value="{{ member[0] }}">
-              <select name="category" required>{% for key, title in categories.items() %}<option value="{{ key }}">{{ title }}</option>{% endfor %}</select>
-              <input type="number" name="days" value="30" min="1" max="3650" title="Дней">
-              <input type="number" name="daily_limit" min="1" placeholder="Лимит">
-              <button class="primary-button" type="submit">Выдать</button>
-            </form>
-          </td>
-        </tr>
-      {% else %}
-        <tr><td colspan="6">Участники не найдены. Загрузите CSV-файл.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
+<section class="panel-card">
+  <form method="get" class="inline-search"><input name="q" value="{{ query }}" placeholder="ID, имя или username"><button>Найти</button></form>
+  <div class="table-wrap"><table><thead><tr><th>ID</th><th>Username</th><th>Имя</th><th>Сообщений</th><th>Статус</th><th>Последняя активность</th></tr></thead>
+  <tbody>{% for m in members %}<tr><td>{{ m.user_id }}</td><td>{% if m.username %}@{{ m.username }}{% endif %}</td><td>{{ m.name }}</td><td>{{ m.message_count }}</td><td>{{ m.telegram_status }}</td><td>{{ m.telegram_last_seen_at }}</td></tr>{% else %}<tr><td colspan="6">Участники ещё не импортированы.</td></tr>{% endfor %}</tbody></table></div>
 </section>
 {% endblock %}

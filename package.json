@@ -1,0 +1,16 @@
+{
+  "name": "bothost-bot",
+  "version": "1.0.0",
+  "description": "Bothost bot",
+  "main": "demerzel.py",
+  "scripts": {
+    "start": "python demerzel.py"
+  },
+  "dependencies": {
+    "telegraf": "latest",
+    "dotenv": "latest"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

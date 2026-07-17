@@ -1,9 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Ошибка сервера{% endblock %}
-{% block content %}
-<div class="card">
-  <h1>Ошибка сервера</h1>
-  <p>Подробный traceback записан в runtime-лог контейнера.</p>
-  <p><a class="button" href="/">Вернуться в панель</a></p>
-</div>
-{% endblock %}
+{% block title %}Ошибка сервера — Demerzel{% endblock %}
+{% block page_title %}Ошибка сервера{% endblock %}
+{% block page_description %}Раздел не удалось открыть. Подробный traceback записан в лог приложения.{% endblock %}
+{% block content %}<section class="panel-card"><p>Обновите страницу после проверки журнала Bothost. Диагностика базы доступна по адресу <code>/health</code>.</p></section>{% endblock %}

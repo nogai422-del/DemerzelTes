@@ -9,6 +9,9 @@
   closeTargets.forEach((target) => {
     target.addEventListener('click', () => body.classList.remove('sidebar-open'));
   });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') body.classList.remove('sidebar-open');
+  });
   document.querySelectorAll('.sidebar .nav-link').forEach((link) => {
     link.addEventListener('click', () => body.classList.remove('sidebar-open'));
   });
@@ -22,12 +25,33 @@
     input.addEventListener('change', update);
   });
 
+  let formIsSubmitting = false;
   document.querySelectorAll('form').forEach((form) => {
-    form.addEventListener('submit', () => {
+    form.dataset.dirty = '0';
+    const markDirty = () => {
+      if (!formIsSubmitting) form.dataset.dirty = '1';
+    };
+    form.addEventListener('input', markDirty);
+    form.addEventListener('change', markDirty);
+
+    form.addEventListener('submit', (event) => {
+      if (event.defaultPrevented) return;
+      formIsSubmitting = true;
+      form.dataset.dirty = '0';
       const button = form.querySelector('button[type="submit"]');
       if (!button || button.dataset.noLoading === '1') return;
       button.classList.add('is-loading');
+      button.disabled = true;
     });
+  });
+
+  window.addEventListener('beforeunload', (event) => {
+    if (formIsSubmitting) return;
+    const hasUnsavedChanges = Array.from(document.querySelectorAll('form'))
+      .some((form) => form.dataset.dirty === '1');
+    if (!hasUnsavedChanges) return;
+    event.preventDefault();
+    event.returnValue = '';
   });
 
   const appearanceForm = document.querySelector('[data-appearance-form]');

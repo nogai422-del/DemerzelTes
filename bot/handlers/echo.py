@@ -12,6 +12,7 @@ from bot.handlers.chat_lock import handle_chat_lock
 from bot.handlers.moderation import moderation_handle_message
 from bot.message_queue import bot_send_photo
 from bot.utils import (
+    resolve_bot_image_path,
     get_full_name,
     safe_delete,
     send_info,
@@ -355,7 +356,7 @@ async def handle_messages(message: Message):
 
     if send_congrats and level_message and image_path:
         try:
-            photo = FSInputFile(f"bot/images/{image_path}")
+            photo = FSInputFile(resolve_bot_image_path(f"bot/images/{image_path}"))
 
             markup = None
             if button_text and button_url:

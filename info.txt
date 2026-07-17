@@ -1,21 +1,22 @@
-# Запуск
+# Запуск Linux
 cd Путь/Demerzel
 source venv/bin/activate
-nohup python3 run.py
+nohup python3 demerzel.py > nohup.out 2>&1 &
 
 # Остановка
-ps aux | grep run
-Находим нужный PID
+ps aux | grep demerzel.py
+# Находим нужный PID
 kill PID
 
 # Запуск в Windows
 cd Путь\Demerzel
 venv\Scripts\activate
-py run.py
+py demerzel.py
 
 # Зависимости
 cd Путь/Demerzel
 python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
 # Настройка системного времени на сервере

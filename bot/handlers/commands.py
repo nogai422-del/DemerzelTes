@@ -9,7 +9,7 @@ from bot.message_queue import bot_answer, bot_reply, bot_send_photo
 from bot.database import db
 from bot.utils import (
     save_timed_message, get_old_messages, update_old_message, get_full_name,
-    is_in_chat_member, safe_delete, is_command_admin,
+    is_in_chat_member, safe_delete, is_command_admin, resolve_bot_image_path,
 )
 from bot.handlers.moderation import is_user_muted, send_restriction_warning
 from bot.warning_state import clear_warning
@@ -19,8 +19,9 @@ import asyncio
 import html
 import time
 
+_bv_locks: dict[tuple[int, int], asyncio.Lock] = {}
+
 router = Router()
-_BV_LOCKS: dict[tuple[int, int], asyncio.Lock] = {}
 
 COSMOS_ID = require_int_env("COSMOS_ID")
 
@@ -218,69 +219,55 @@ async def handle_view_command(message: Message, bot):
 # Команда /bv: отправляет шаблон анкеты в ответ на сообщение пользователя.
 @router.message(Command("bv"))
 async def handle_bv_command(message: Message):
-    """Отправляет одну актуальную форму /bv для выбранного пользователя."""
+    """Показывает анкету любому участнику и оставляет один активный ответ на человека."""
     try:
         await safe_delete(message)
         chat_id = message.chat.id
-
-        if not message.from_user or await is_user_muted(chat_id, message.from_user.id):
+        if await is_user_muted(chat_id, message.from_user.id):
             return
 
-        if not message.reply_to_message or not message.reply_to_message.from_user:
+        replied = message.reply_to_message
+        if not replied or not replied.from_user:
             sent = await bot_answer(
                 message,
-                "Для отправки формы с анкетой вызовите команду /bv в ответ на сообщение пользователя.",
+                "Для отправки формы вызовите /bv в ответ на сообщение пользователя.",
                 wait=True,
             )
             if sent:
                 await save_timed_message(chat_id, sent.message_id)
             return
 
-        target_message = message.reply_to_message
-        target_user_id = target_message.from_user.id
-        lock_key = (chat_id, target_user_id)
-        lock = _BV_LOCKS.setdefault(lock_key, asyncio.Lock())
-
-        # Сериализация важна: два одновременных /bv иначе оба успевают
-        # отправить сообщение до записи нового message_id в БД.
+        target_id = replied.from_user.id
+        lock = _bv_locks.setdefault((chat_id, target_id), asyncio.Lock())
         async with lock:
             async with db() as cur:
                 await cur.execute("SELECT content FROM form_text ORDER BY rowid LIMIT 1")
                 row = await cur.fetchone()
                 await cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS bv_messages (
-                        chat_id INTEGER NOT NULL,
-                        user_id INTEGER NOT NULL,
-                        message_id INTEGER NOT NULL,
-                        PRIMARY KEY (chat_id, user_id)
-                    )
-                    """
-                )
-                await cur.execute(
-                    "SELECT message_id FROM bv_messages WHERE chat_id=? AND user_id=?",
-                    (chat_id, target_user_id),
+                    "SELECT message_id FROM bv_messages WHERE chat_id=? AND target_user_id=?",
+                    (chat_id, target_id),
                 )
                 previous = await cur.fetchone()
 
-            form_text = row[0] if row and row[0] else "Анкета пока не настроена администратором."
             if previous:
                 try:
                     await message.bot.delete_message(chat_id, int(previous[0]))
                 except Exception:
                     pass
 
-            sent = await bot_reply(target_message, form_text, wait=True, parse_mode="HTML")
+            form_text = str(row[0] if row else "").strip()
+            if not form_text:
+                form_text = "Шаблон анкеты пока не настроен администратором."
+
+            sent = await bot_reply(replied, form_text, parse_mode="HTML", wait=True)
             if sent:
                 async with db() as cur:
                     await cur.execute(
-                        """
-                        INSERT INTO bv_messages(chat_id, user_id, message_id)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(chat_id, user_id) DO UPDATE SET
-                            message_id=excluded.message_id
-                        """,
-                        (chat_id, target_user_id, sent.message_id),
+                        """INSERT INTO bv_messages(chat_id,target_user_id,message_id,updated_at)
+                           VALUES(?,?,?,?)
+                           ON CONFLICT(chat_id,target_user_id) DO UPDATE SET
+                           message_id=excluded.message_id, updated_at=excluded.updated_at""",
+                        (chat_id, target_id, sent.message_id, int(time.time())),
                     )
     except Exception as e:
         print("Ошибка /bv:", e)
@@ -438,7 +425,7 @@ async def send_stats(message: Message):
                     else None
                 )
 
-                photo = FSInputFile(f"bot/images/{image_path}")
+                photo = FSInputFile(resolve_bot_image_path(f"bot/images/{image_path}"))
 
                 sent = await bot_send_photo(
                     message,

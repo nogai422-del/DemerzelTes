@@ -24,9 +24,6 @@
       <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{{ url_for('index') }}">
         <span class="nav-icon">⌂</span><span>Главная</span>
       </a>
-      <a class="nav-link {% if request.path == '/members' %}active{% endif %}" href="{{ url_for('members.members') }}">
-        <span class="nav-icon">◎</span><span>Участники</span>
-      </a>
       <a class="nav-link {% if request.path == '/edit_form' %}active{% endif %}" href="{{ url_for('edit_form.edit_form') }}">
         <span class="nav-icon">☷</span><span>Блок вопросов</span>
       </a>
@@ -37,12 +34,24 @@
         <span class="nav-icon">▧</span><span>Изображения</span>
       </a>
 
+      <a class="nav-link {% if request.path == '/members' %}active{% endif %}" href="{{ url_for('members.members') }}">
+        <span class="nav-icon">☰</span><span>Участники</span>
+      </a>
+
       <span class="nav-caption">Донаты и доступы</span>
       <a class="nav-link {% if request.path == '/edit_permission_messages' %}active{% endif %}" href="{{ url_for('edit_permission.edit_permission_messages') }}">
         <span class="nav-icon">◈</span><span>Отсутствие доната</span>
       </a>
       <a class="nav-link {% if request.path == '/edit_donation_notifications' %}active{% endif %}" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">
         <span class="nav-icon">◷</span><span>Сроки донатов</span>
+      </a>
+
+      <span class="nav-caption">Сообщения</span>
+      <a class="nav-link {% if request.path == '/message_settings' %}active{% endif %}" href="{{ url_for('message_settings.message_settings') }}">
+        <span class="nav-icon">✎</span><span>Сообщения и команды</span>
+      </a>
+      <a class="nav-link {% if request.path.startswith('/donation_revoke') %}active{% endif %}" href="{{ url_for('donation_revoke.donation_revoke') }}">
+        <span class="nav-icon">−</span><span>Снятие донатов</span>
       </a>
 
       <span class="nav-caption">Контент</span>

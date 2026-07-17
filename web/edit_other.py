@@ -4,6 +4,10 @@ import hmac
 import secrets
 from flask import Blueprint, render_template, request, redirect, session
 from bot.database import db
+from bot.settings import (
+    get_restrict_new_members_telegram,
+    set_restrict_new_members_telegram,
+)
 
 edit_other_bp = Blueprint("edit_other", __name__)
 
@@ -56,6 +60,9 @@ async def edit_other():
         myth_reminder_message_number = to_int(other.get("other[myth_reminder_message_number]", 0))
 
         wisdom_timer_minutes = to_int(other.get("other[wisdom_timer_minutes]", 0))
+        restrict_new_members_telegram = (
+            other.get("chat_behavior[restrict_new_members_telegram]") == "1"
+        )
 
         async with db() as cur:
             await cur.execute("""
@@ -147,6 +154,8 @@ async def edit_other():
                     wisdom_timer_minutes
                 ))
 
+        await set_restrict_new_members_telegram(restrict_new_members_telegram)
+
         return redirect("/edit_other?saved=1")
 
     columns = [
@@ -175,10 +184,12 @@ async def edit_other():
         row = await cur.fetchone()
 
     other_data = dict(zip(columns, row)) if row else {}
+    restrict_new_members_telegram = await get_restrict_new_members_telegram()
 
     return render_template(
         "edit_other.html",
         other=other_data,
+        restrict_new_members_telegram=restrict_new_members_telegram,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),
         csrf_token=session["csrf_token"],

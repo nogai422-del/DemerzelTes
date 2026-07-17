@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Снятие донатов — Demerzel Control{% endblock %}
+{% block kicker %}Права и донаты{% endblock %}
+{% block page_title %}Снятие донатов{% endblock %}
+{% block page_description %}Настройка команд, подтверждений, уведомлений и ручное управление правами пользователей.{% endblock %}
+{% block notices %}
+{% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Бот применит их без перезапуска.</div></div>{% endif %}
+{% if action == 'ok' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Действие выполнено</strong>Изменение записано в журнал.</div></div>{% endif %}
+{% if action == 'error' %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка действия</strong>Проверьте пользователя и журнал приложения.</div></div>{% endif %}
+{% if csrf == '0' %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="settings-tabs" data-tabs>
+  <div class="tab-list" role="tablist">
+    <button type="button" class="tab-button active" data-tab-target="commands">Команды</button>
+    <button type="button" class="tab-button" data-tab-target="behavior">Поведение</button>
+    <button type="button" class="tab-button" data-tab-target="messages">Сообщения</button>
+    <button type="button" class="tab-button" data-tab-target="users">Пользователи</button>
+    <button type="button" class="tab-button" data-tab-target="audit">Журнал</button>
+  </div>
+<form method="POST" class="settings-form">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<section class="tab-panel active" data-tab-panel="commands">
+<div class="section-card"><div class="section-header"><div><h2>Команды снятия</h2><p>Можно отключать команды и задавать понятные псевдонимы.</p></div><span class="section-icon">⌘</span></div>
+{% for key, definition in definitions.items() %}{% set cmd=commands[key] %}
+<div class="form-grid donation-command-row">
+  <div class="form-group switch-row"><label>{{ definition.title }} <span class="help-tip" tabindex="0" data-tooltip="Включает обработку этой команды ботом. При выключении команда игнорируется.">?</span></label><label class="switch"><input type="checkbox" name="cmd_{{ key }}_enabled" value="1" {% if cmd.enabled %}checked{% endif %}><span></span></label></div>
+  <div class="form-group"><label>Основное имя <span class="help-tip" tabindex="0" data-tooltip="Имя без символа /. Системное имя команды сохраняется для совместимости; это поле отображается как рекомендуемое имя.">?</span></label><input name="cmd_{{ key }}_name" value="{{ cmd.command_name }}"></div>
+  <div class="form-group"><label>Псевдонимы <span class="help-tip" tabindex="0" data-tooltip="Дополнительные имена через запятую, без /. Встроенные псевдонимы продолжают работать.">?</span></label><input name="cmd_{{ key }}_aliases" value="{{ cmd.aliases }}"></div>
+</div>{% endfor %}
+</div></section>
+<section class="tab-panel" data-tab-panel="behavior">
+<div class="section-card"><div class="section-header"><div><h2>Доступ и безопасность</h2><p>Кто и каким способом может снимать донаты.</p></div><span class="section-icon">⚙</span></div>
+<div class="form-grid"><div class="form-group"><label>Кто может использовать <span class="help-tip" tabindex="0" data-tooltip="Владелец — только COSMOS_ID; администраторы — владелец и админы чата; список — только указанные Telegram ID и владелец.">?</span></label><select name="access_mode"><option value="owner" {% if settings.access_mode=='owner' %}selected{% endif %}>Только владелец</option><option value="admins" {% if settings.access_mode=='admins' %}selected{% endif %}>Администраторы чата</option><option value="allowlist" {% if settings.access_mode=='allowlist' %}selected{% endif %}>Отдельный список</option></select></div>
+<div class="form-group"><label>Разрешённые Telegram ID <span class="help-tip" tabindex="0" data-tooltip="Используется в режиме «Отдельный список». ID разделяются запятыми.">?</span></label><input name="allowed_user_ids" value="{{ settings.allowed_user_ids }}" placeholder="123456789, 987654321"></div></div>
+<div class="option-grid">
+<label class="check-card"><input type="checkbox" name="allow_reply" value="1" {% if settings.allow_reply %}checked{% endif %}><span><strong>Команда ответом</strong><small>Разрешить выбирать пользователя ответом на сообщение.</small></span></label>
+<label class="check-card"><input type="checkbox" name="allow_user_id" value="1" {% if settings.allow_user_id %}checked{% endif %}><span><strong>Команда по ID</strong><small>Разрешить формат /delem 123456789.</small></span></label>
+<label class="check-card"><input type="checkbox" name="notify_chat" value="1" {% if settings.notify_chat %}checked{% endif %}><span><strong>Ответ в чате</strong><small>Показывать результат администратору и участникам.</small></span></label>
+<label class="check-card"><input type="checkbox" name="notify_target" value="1" {% if settings.notify_target %}checked{% endif %}><span><strong>Личное уведомление</strong><small>Пытаться написать пользователю в личные сообщения.</small></span></label>
+<label class="check-card"><input type="checkbox" name="require_delmax_confirmation" value="1" {% if settings.require_delmax_confirmation %}checked{% endif %}><span><strong>Подтверждать /delmax</strong><small>Требует повторить команду с аргументом confirm.</small></span></label>
+</div>
+<div class="form-group"><label>Поведение /delm2 <span class="help-tip" tabindex="0" data-tooltip="Понижение оставляет Медиа 1; полное снятие устанавливает Медиа 0.">?</span></label><select name="media2_behavior"><option value="downgrade" {% if settings.media2_behavior=='downgrade' %}selected{% endif %}>Понижать до Медиа 1</option><option value="remove" {% if settings.media2_behavior=='remove' %}selected{% endif %}>Полностью снимать медиа</option></select></div>
+</div></section>
+<section class="tab-panel" data-tab-panel="messages"><div class="section-card"><div class="section-header"><div><h2>Шаблоны ответов</h2><p>HTML Telegram и переменные {user}, {donation}, {command}.</p></div><span class="section-icon">✎</span></div>
+<div class="form-group"><label>Успешное снятие <span class="help-tip" tabindex="0" data-tooltip="Используется, когда донат был активен и успешно снят.">?</span></label><textarea name="success_template" rows="3">{{ settings.success_template }}</textarea></div>
+<div class="form-group"><label>Донат отсутствовал <span class="help-tip" tabindex="0" data-tooltip="Ответ, когда указанного доната у пользователя уже нет.">?</span></label><textarea name="missing_template" rows="3">{{ settings.missing_template }}</textarea></div>
+<div class="form-group"><label>Ошибка <span class="help-tip" tabindex="0" data-tooltip="Сообщение при внутренней ошибке базы или Telegram.">?</span></label><textarea name="error_template" rows="3">{{ settings.error_template }}</textarea></div>
+</div></section>
+<div class="sticky-save"><button type="submit">Сохранить настройки</button></div>
+</form>
+<section class="tab-panel" data-tab-panel="users"><div class="section-card"><div class="section-header"><div><h2>Пользователи</h2><p>Последние 300 записей. Критическое действие требует подтверждения браузера.</p></div><span class="section-icon">☷</span></div>
+<div class="table-wrap"><table class="admin-table"><thead><tr><th>Чат</th><th>Пользователь</th><th>Медиа</th><th>Срочные донаты</th><th>Действия</th></tr></thead><tbody>{% for user in users %}<tr><td>{{ user.chat_id }}</td><td><code>{{ user.user_id }}</code></td><td>Медиа {{ user.permission_level }}</td><td>{{ user.donations or '—' }}</td><td><div class="action-buttons">{% for action,label in [('emoji','Эмодзи'),('voice','ГС'),('video_note','Кружки'),('tag','Тег'),('media','Медиа'),('media2','Медиа 2'),('all','Все донаты')] %}<form method="POST" action="{{ url_for('donation_revoke.donation_revoke_action') }}" {% if action=='all' %}onsubmit="return confirm('Забрать у пользователя все донаты и установить Медиа 0?')"{% endif %}><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="chat_id" value="{{ user.chat_id }}"><input type="hidden" name="user_id" value="{{ user.user_id }}"><input type="hidden" name="action" value="{{ action }}"><button type="submit" class="{% if action=='all' %}danger-button{% endif %}" data-no-loading="1">{{ label }}</button></form>{% endfor %}</div></td></tr>{% else %}<tr><td colspan="5">Пользователи пока не найдены.</td></tr>{% endfor %}</tbody></table></div>
+</div></section>
+<section class="tab-panel" data-tab-panel="audit"><div class="section-card"><div class="section-header"><div><h2>Журнал действий</h2><p>Кто, у кого и какой донат снял.</p></div><span class="section-icon">◷</span></div><div class="table-wrap"><table class="admin-table"><thead><tr><th>Время</th><th>Источник</th><th>Администратор</th><th>Чат</th><th>Пользователь</th><th>Действие</th><th>Результат</th></tr></thead><tbody>{% for row in audit %}<tr><td>{{ row.created_at|timestamp_to_date if false else row.created_at }}</td><td>{{ row.source }}</td><td>{{ row.admin_name or row.admin_id or '—' }}</td><td>{{ row.chat_id }}</td><td>{{ row.target_id }}</td><td>{{ row.action }}</td><td>{{ row.details }}</td></tr>{% else %}<tr><td colspan="7">Журнал пуст.</td></tr>{% endfor %}</tbody></table></div></div></section>
+</div>
+{% endblock %}
+{% block scripts %}<script>document.querySelectorAll('[data-tab-target]').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('[data-tab-target]').forEach(x=>x.classList.toggle('active',x===button));document.querySelectorAll('[data-tab-panel]').forEach(x=>x.classList.toggle('active',x.dataset.tabPanel===button.dataset.tabTarget));}));</script>{% endblock %}

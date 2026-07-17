@@ -17,14 +17,19 @@ from bot.donations import (
     has_active_donation,
     send_usage_limit_notification,
     send_test_donation_notification,
+    revoke_donation_grant,
+    revoke_all_donation_grants,
 )
 from bot.message_queue import (
     bot_answer, bot_send_message, bot_send_photo_to_chat
 )
+from bot.message_templates import get_message_template, render_template, send_configured_message
+from bot.donation_revoke_settings import get_revoke_settings, log_revoke_action, render_revoke_text
 from bot.handlers.badword_detector import detect_badword_details
 from bot.handlers.emoji_detector import message_emoji_count
 from bot.utils import (
-    save_timed_message, get_full_name, safe_delete, is_command_admin, resolve_bot_image_path
+    resolve_bot_image_path,
+    save_timed_message, get_full_name, safe_delete, is_command_admin
 )
 from bot.warning_state import (
     ONBOARDING_PERMISSION_TYPE,
@@ -505,6 +510,163 @@ async def media_permission_handler(message: Message, bot: Bot):
         print("Ошибка /media:", e)
 
 
+def _resolve_donation_command_target(message: Message, settings):
+    """Цель команды снятия доната с учётом настроек reply/ID."""
+    if settings.get("allow_reply") and message.reply_to_message and message.reply_to_message.from_user:
+        return message.reply_to_message.from_user, message.reply_to_message.from_user.id
+
+    parts = (message.text or "").split()
+    numeric = next((part for part in parts[1:] if part.lstrip("-").isdigit()), None)
+    if settings.get("allow_user_id") and numeric is not None:
+        return None, int(numeric)
+    return None, None
+
+
+async def _donation_revoke_guard(message: Message, bot: Bot, command_key: str):
+    """Проверки доступа, состояния команды и способа выбора пользователя."""
+    if not message.from_user:
+        return None
+    settings = await get_revoke_settings()
+    command_settings = settings["commands"].get(command_key, {})
+    if not int(command_settings.get("enabled", 1)):
+        return None
+
+    chat_id = message.chat.id
+    if await is_user_muted(chat_id, message.from_user.id):
+        return None
+
+    actor_id = int(message.from_user.id)
+    mode = settings.get("access_mode", "admins")
+    allowed = actor_id == int(COSMOS_ID)
+    if mode == "admins":
+        allowed = allowed or await is_command_admin(bot, chat_id, actor_id, owner_id=COSMOS_ID)
+    elif mode == "allowlist":
+        allowed = allowed or actor_id in settings.get("allowed_ids", set())
+    if not allowed:
+        return None
+
+    target_user, target_id = _resolve_donation_command_target(message, settings)
+    if target_id is None:
+        if settings.get("notify_chat", 1):
+            await bot_answer(message, "Выберите пользователя ответом на сообщение или укажите Telegram ID. Проверьте разрешённые способы в админ-панели.")
+        return None
+    return chat_id, target_user, target_id, settings
+
+
+async def _target_display_name(target_user, target_id: int) -> str:
+    if target_user is not None:
+        return hd.quote(await get_full_name(target_user))
+    return f"ID {target_id}"
+
+
+async def _finish_revoke(message: Message, bot: Bot, *, settings, target_id: int, name: str, donation: str, existed: bool, action: str, details: str):
+    template = settings["success_template"] if existed else settings["missing_template"]
+    text = render_revoke_text(template, user=name, donation=donation, command=action)
+    if settings.get("notify_chat", 1):
+        await bot_answer(message, text, parse_mode="HTML")
+    if settings.get("notify_target"):
+        try:
+            await bot.send_message(target_id, text, parse_mode="HTML")
+        except Exception:
+            pass
+    await log_revoke_action(
+        source="telegram", admin_id=message.from_user.id,
+        admin_name=await get_full_name(message.from_user), chat_id=message.chat.id,
+        target_id=target_id, action=action, details=details, success=True,
+    )
+
+
+async def _handle_revoke_timed_donation(message: Message, bot: Bot, *, category: str, title: str) -> None:
+    try:
+        await safe_delete(message)
+        resolved = await _donation_revoke_guard(message, bot, category)
+        if not resolved:
+            return
+        chat_id, target_user, target_id, settings = resolved
+        existed = await revoke_donation_grant(chat_id, target_id, category)
+        name = await _target_display_name(target_user, target_id)
+        await _finish_revoke(message, bot, settings=settings, target_id=target_id, name=name,
+            donation=title, existed=existed, action=category, details="removed" if existed else "missing")
+    except Exception as exc:
+        print(f"Ошибка снятия доната {category}:", exc)
+
+
+@router.message(Command("delem", "delemoji"))
+async def delete_emoji_donation_handler(message: Message, bot: Bot):
+    await _handle_revoke_timed_donation(message, bot, category="emoji", title="Эмодзи")
+
+
+@router.message(Command("delgs", "delvoice"))
+async def delete_voice_donation_handler(message: Message, bot: Bot):
+    await _handle_revoke_timed_donation(message, bot, category="voice", title="Голосовые сообщения")
+
+
+@router.message(Command("delcircle", "delcircles", "delvideo_note"))
+async def delete_circle_donation_handler(message: Message, bot: Bot):
+    await _handle_revoke_timed_donation(message, bot, category="video_note", title="Кружки")
+
+
+@router.message(Command("deltag"))
+async def delete_tag_donation_handler(message: Message, bot: Bot):
+    await _handle_revoke_timed_donation(message, bot, category="tag", title="Тег")
+
+
+@router.message(Command("delm", "delmedia"))
+async def delete_media_donation_handler(message: Message, bot: Bot):
+    try:
+        await safe_delete(message)
+        resolved = await _donation_revoke_guard(message, bot, "media")
+        if not resolved: return
+        chat_id, target_user, target_id, settings = resolved
+        old_level = await get_permission_level(chat_id, target_id)
+        await set_permission_level(chat_id, target_id, 0)
+        name = await _target_display_name(target_user, target_id)
+        await _finish_revoke(message, bot, settings=settings, target_id=target_id, name=name,
+            donation="Медиа", existed=old_level > 0, action="media", details=f"media {old_level}->0")
+    except Exception as exc:
+        print("Ошибка /delm:", exc)
+
+
+@router.message(Command("delm2", "delmedia2"))
+async def delete_media2_donation_handler(message: Message, bot: Bot):
+    try:
+        await safe_delete(message)
+        resolved = await _donation_revoke_guard(message, bot, "media2")
+        if not resolved: return
+        chat_id, target_user, target_id, settings = resolved
+        old_level = await get_permission_level(chat_id, target_id)
+        new_level = 0 if settings.get("media2_behavior") == "remove" else (1 if old_level >= 2 else old_level)
+        await set_permission_level(chat_id, target_id, new_level)
+        name = await _target_display_name(target_user, target_id)
+        await _finish_revoke(message, bot, settings=settings, target_id=target_id, name=name,
+            donation="Медиа 2", existed=old_level >= 2, action="media2", details=f"media {old_level}->{new_level}")
+    except Exception as exc:
+        print("Ошибка /delm2:", exc)
+
+
+@router.message(Command("delmax"))
+async def delete_all_donations_handler(message: Message, bot: Bot):
+    try:
+        await safe_delete(message)
+        resolved = await _donation_revoke_guard(message, bot, "all")
+        if not resolved: return
+        chat_id, target_user, target_id, settings = resolved
+        parts = [p.lower() for p in (message.text or "").split()[1:]]
+        if settings.get("require_delmax_confirmation") and "confirm" not in parts and "подтверждаю" not in parts:
+            if settings.get("notify_chat", 1):
+                await bot_answer(message, "Это действие снимет все донаты. Повторите команду, добавив <code>confirm</code>: <code>/delmax confirm ID</code>, либо ответьте на сообщение командой <code>/delmax confirm</code>.", parse_mode="HTML")
+            return
+        categories = await revoke_all_donation_grants(chat_id, target_id)
+        old_level = await get_permission_level(chat_id, target_id)
+        await set_permission_level(chat_id, target_id, 0)
+        name = await _target_display_name(target_user, target_id)
+        existed = bool(categories or old_level > 0)
+        await _finish_revoke(message, bot, settings=settings, target_id=target_id, name=name,
+            donation="Все донаты", existed=existed, action="all", details=f"categories={','.join(categories)}; media {old_level}->0")
+    except Exception as exc:
+        print("Ошибка /delmax:", exc)
+
+
 # Выдает/продлевает доступ к голосовым сообщениям.
 @router.message(Command("voice"))
 async def voice_allow_handler(message: Message, bot: Bot):
@@ -864,14 +1026,15 @@ def _schedule_view_message_delete(
     task.add_done_callback(_VIEW_DELETE_TASKS.discard)
 
 
-async def _format_donation_view(
+async def _build_donation_view_values(
     chat_id: int,
     user_id: int,
     *,
     full_name: str,
     username: str | None = None,
-) -> str:
-    """Формирует единый текст для /viewd и /viewmd."""
+    empty_text: str = "Активных донат-функций сейчас нет.",
+) -> dict[str, str]:
+    """Готовит безопасные переменные для гибкого шаблона /viewd и /viewmd."""
     level = await get_permission_level(chat_id, user_id)
     grants = await get_active_donation_statuses(chat_id, user_id)
 
@@ -881,12 +1044,7 @@ async def _format_donation_view(
         identity += f" · @{hd.quote(username)}"
     identity += f" · <code>{user_id}</code>"
 
-    lines = [
-        "<b>Донат-функции пользователя</b>",
-        f"👤 {identity}",
-        "",
-    ]
-
+    lines: list[str] = []
     if level > 0:
         lines.append(f"• <b>Медиа {level}</b> — бессрочно")
 
@@ -900,28 +1058,36 @@ async def _format_donation_view(
             line += f"\n  Сегодня: {used}/{grant['daily_limit']}"
         lines.append(line)
 
-    if level == 0 and not grants:
-        lines.append("Активных донат-функций сейчас нет.")
+    if not lines:
+        lines.append(empty_text)
 
-    return "\n".join(lines)
+    return {
+        "identity": identity,
+        "full_name": safe_name,
+        "username": hd.quote(username or ""),
+        "user_id": str(user_id),
+        "donation_lines": "\n".join(lines),
+        "permanent_level": str(level),
+    }
 
 
 async def _send_timed_donation_view(
     message: Message,
     bot: Bot,
     *,
+    template: dict,
     text: str,
-    delay_seconds: int,
 ) -> None:
-    if delay_seconds > 0:
+    delay_seconds = max(0, min(int(template.get("delete_seconds", 30)), 86400))
+    if delay_seconds > 0 and template.get("show_delete_notice"):
         text += f"\n\n<i>Сообщение удалится через {delay_seconds} сек.</i>"
 
-    sent = await bot_answer(
-        message,
+    sent = await send_configured_message(
+        bot,
+        message.chat.id,
+        template,
         text,
-        wait=True,
-        parse_mode="HTML",
-        disable_web_page_preview=True,
+        message_thread_id=message.message_thread_id,
     )
     if sent is not None:
         _schedule_view_message_delete(
@@ -937,16 +1103,18 @@ async def view_donations_handler(message: Message, bot: Bot):
         if not message.from_user:
             return
 
-        timers = await get_donation_view_timers()
-        text = await _format_donation_view(
+        template = await get_message_template("viewd")
+        if not template.get("enabled"):
+            return
+        values = await _build_donation_view_values(
             message.chat.id,
             message.from_user.id,
             full_name=await get_full_name(message.from_user),
             username=message.from_user.username,
+            empty_text=str(template.get("empty_text") or ""),
         )
-        await _send_timed_donation_view(
-            message, bot, text=text, delay_seconds=timers.get("viewd", 30)
-        )
+        text = render_template(str(template.get("message") or ""), values)
+        await _send_timed_donation_view(message, bot, template=template, text=text)
     except Exception as e:
         print("Ошибка /viewd:", e)
 
@@ -964,14 +1132,16 @@ async def view_member_donations_handler(message: Message, bot: Bot):
         ):
             return
 
+        template = await get_message_template("viewmd")
+        if not template.get("enabled"):
+            return
+
         target_user = None
         target_user_id: int | None = None
-
         if message.reply_to_message and message.reply_to_message.from_user:
             target_user = message.reply_to_message.from_user
             target_user_id = target_user.id
         else:
-            # Поддерживаем скрытое текстовое упоминание Telegram.
             for entity in message.entities or []:
                 mentioned = getattr(entity, "user", None)
                 if mentioned and mentioned.id != message.from_user.id:
@@ -985,43 +1155,30 @@ async def view_member_donations_handler(message: Message, bot: Bot):
                 if re.fullmatch(r"-?\d+", argument):
                     target_user_id = int(argument)
                     try:
-                        member = await bot.get_chat_member(
-                            message.chat.id, target_user_id
-                        )
+                        member = await bot.get_chat_member(message.chat.id, target_user_id)
                         target_user = member.user
                     except Exception:
                         target_user = None
 
-        timers = await get_donation_view_timers()
-        delay = timers.get("viewmd", 30)
-
         if target_user_id is None:
-            usage = (
-                "<b>Как использовать /viewmd</b>\n"
-                "Ответьте командой на сообщение пользователя или укажите его "
-                "Telegram ID: <code>/viewmd 123456789</code>."
-            )
-            await _send_timed_donation_view(
-                message, bot, text=usage, delay_seconds=delay
-            )
+            usage = str(template.get("usage_text") or "")
+            if usage:
+                await _send_timed_donation_view(
+                    message, bot, template=template, text=usage
+                )
             return
 
-        if target_user is not None:
-            full_name = await get_full_name(target_user)
-            username = target_user.username
-        else:
-            full_name = "Пользователь"
-            username = None
-
-        text = await _format_donation_view(
+        full_name = await get_full_name(target_user) if target_user else "Пользователь"
+        username = target_user.username if target_user else None
+        values = await _build_donation_view_values(
             message.chat.id,
             target_user_id,
             full_name=full_name,
             username=username,
+            empty_text=str(template.get("empty_text") or ""),
         )
-        await _send_timed_donation_view(
-            message, bot, text=text, delay_seconds=delay
-        )
+        text = render_template(str(template.get("message") or ""), values)
+        await _send_timed_donation_view(message, bot, template=template, text=text)
     except Exception as e:
         print("Ошибка /viewmd:", e)
 

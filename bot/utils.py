@@ -464,14 +464,13 @@ async def is_command_admin(bot: Bot, chat_id: int, user_id: int, *, owner_id: in
 
 
 def resolve_bot_image_path(path: str) -> str:
-    """Возвращает существующий путь изображения, включая JPG-копию после веб-превью."""
-    if not path:
-        return ""
-    normalized = os.path.normpath(path)
-    if os.path.isfile(normalized):
-        return normalized
-    base, ext = os.path.splitext(normalized)
-    jpg_path = base + ".jpg"
-    if ext.lower() != ".jpg" and os.path.isfile(jpg_path):
-        return jpg_path
-    return normalized
+    """Возвращает существующий файл; поддерживает JPG-копию, созданную панелью."""
+    candidate = os.path.normpath(path)
+    if os.path.isfile(candidate):
+        return candidate
+    root, ext = os.path.splitext(candidate)
+    if ext.lower() in {".png", ".gif", ".jpeg"}:
+        jpg = root + ".jpg"
+        if os.path.isfile(jpg):
+            return jpg
+    return candidate

@@ -1,5 +1,7 @@
 # Аутентификация админ-панели: вход и выход пользователя.
 
+import hmac
+
 from flask import Blueprint, render_template, request, redirect, session
 from env_config import require_env
 
@@ -17,8 +19,13 @@ async def login():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
-        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        username_ok = hmac.compare_digest(username, ADMIN_USERNAME)
+        password_ok = hmac.compare_digest(password, ADMIN_PASSWORD)
+
+        if username_ok and password_ok:
+            session.clear()
             session["username"] = username
+            session.permanent = True
             return redirect("/")
 
         return render_template("login.html", error="Неверный логин или пароль")
