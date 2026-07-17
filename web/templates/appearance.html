@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Оформление — Demerzel Control{% endblock %}
+{% block kicker %}Персонализация панели{% endblock %}
+{% block page_title %}Оформление{% endblock %}
+{% block page_description %}Переключайте светлую и тёмную тему, выбирайте акцентный цвет, прозрачность кнопок и общий стиль интерфейса.{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Оформление сохранено</strong>Новый стиль применяется ко всем вкладкам панели.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<form method="POST" class="appearance-form" data-appearance-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Тема и цвет</h2><p>Изменения сразу отображаются в предпросмотре. После сохранения они применятся ко всей панели.</p></div><span class="section-icon">◐</span></div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="theme">Режим</label>
+        <select id="theme" name="theme" data-ui-theme>
+          {% for value, title in themes.items() %}<option value="{{ value }}" {% if settings.theme == value %}selected{% endif %}>{{ title }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="form-group color-control">
+        <label for="accent_color">Акцентный цвет</label>
+        <div class="color-input-row">
+          <input id="accent_color" type="color" name="accent_color" value="{{ settings.accent_color }}" data-ui-accent>
+          <output data-color-output>{{ settings.accent_color }}</output>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Стиль интерфейса</h2><p>Выберите характер карточек, панелей и элементов управления.</p></div><span class="section-icon">✦</span></div>
+    <div class="style-picker" role="radiogroup" aria-label="Стиль интерфейса">
+      {% for value, title in ui_styles.items() %}
+      <label class="style-option">
+        <input type="radio" name="ui_style" value="{{ value }}" {% if settings.ui_style == value %}checked{% endif %} data-ui-style>
+        <span class="style-option-preview style-preview-{{ value }}"><i></i><i></i><i></i></span>
+        <strong>{{ title }}</strong>
+        <small>{% if value == 'liquid' %}Стеклянные полупрозрачные поверхности в стиле iOS.{% elif value == 'soft' %}Мягкие объёмные панели и спокойные тени.{% elif value == 'minimal' %}Плоский строгий интерфейс без лишних эффектов.{% else %}Сбалансированный стандартный вид панели.{% endif %}</small>
+      </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Прозрачность кнопок</h2><p>Регулируется только фон кнопок — текст и иконки остаются хорошо читаемыми.</p></div><span class="section-icon">◫</span></div>
+    <div class="range-control">
+      <input type="range" min="15" max="100" step="1" value="{{ settings.button_opacity_percent }}" data-ui-opacity-range>
+      <input type="hidden" name="button_opacity" value="{{ settings.button_opacity }}" data-ui-opacity-value>
+      <output data-opacity-output>{{ settings.button_opacity_percent }}%</output>
+    </div>
+  </section>
+
+  <section class="appearance-preview" aria-label="Предпросмотр оформления">
+    <div class="preview-window">
+      <div class="preview-sidebar"><span></span><span></span><span></span><span></span></div>
+      <div class="preview-content">
+        <div class="preview-title"><span></span><span></span></div>
+        <div class="preview-cards"><article></article><article></article><article></article></div>
+        <div class="preview-actions"><button type="button">Основная кнопка</button><button type="button" class="button-secondary">Дополнительная</button></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить оформление</button></div>
+</form>
+{% endblock %}

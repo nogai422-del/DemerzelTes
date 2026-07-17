@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Словарь матов — Demerzel Control{% endblock %}
+{% block kicker %}Модерация сообщений{% endblock %}
+{% block page_title %}Словарь матов{% endblock %}
+{% block page_description %}Управляйте префиксами и точными словами. Бот автоматически нормализует регистр, букву «ё», дубли и часть обходов цензуры.{% endblock %}
+{% block notices %}{% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Словарь сохранён</strong>Обновлённые слова будут применяться при следующей проверке.</div></div>{% endif %}{% endblock %}
+{% block content %}
+<div class="info-panel"><p><strong>Как заполнять:</strong> вводите слова через пробел. Не добавляйте неоднозначные слова, которые часто используются в обычном контексте.</p><p>Спецсимволы и латиница внутри кириллических слов распознаются ботом автоматически.</p></div>
+<form method="POST">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Префиксы</h2><p>Блокируют все слова, начинающиеся с указанной основы. Например, основа «хуй» также блокирует производные.</p></div><span class="section-icon">⌁</span></div>
+    <div class="form-group"><label for="prefixes">Список основ</label><textarea id="prefixes" name="prefixes" spellcheck="false">{{ prefixes_content | e }}</textarea></div>
+  </section>
+  <section class="section-card">
+    <div class="section-header"><div><h2>Точные слова</h2><p>Срабатывают только на полное совпадение и не затрагивают длинные слова с похожей частью.</p></div><span class="section-icon">≡</span></div>
+    <div class="form-group"><label for="exact_words">Список точных слов</label><textarea id="exact_words" name="exact_words" spellcheck="false">{{ exact_words_content | e }}</textarea></div>
+  </section>
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить словарь</button></div>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='autoresize.js') }}"></script>{% endblock %}

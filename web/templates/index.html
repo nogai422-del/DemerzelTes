@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Главная — Demerzel Control{% endblock %}
+{% block kicker %}Обзор панели{% endblock %}
+{% block page_title %}Управление Demerzel{% endblock %}
+{% block page_description %}Все прежние разделы сохранены. Выберите нужный блок, чтобы изменить тексты, уровни, донат-уведомления или плановые публикации.{% endblock %}
+{% block content %}
+<section class="dashboard-hero">
+  <div class="hero-copy">
+    <h2>Настройки бота в одном месте</h2>
+    <p>Интерфейс обновлён, но существующие вкладки, адреса страниц и логика сохранения остались прежними.</p>
+    <div class="hero-badges">
+      <span class="hero-badge">9 разделов управления</span>
+      <span class="hero-badge">Адаптация под телефон</span>
+      <span class="hero-badge">Настройки оформления сохраняются</span>
+    </div>
+  </div>
+  <div class="hero-state">
+    <span>Состояние панели</span>
+    <strong>Активна</strong>
+    <span><span class="status-dot"></span> конфигурация доступна</span>
+  </div>
+</section>
+
+<section class="dashboard-grid" aria-label="Разделы админ-панели">
+  <a class="dashboard-card" href="{{ url_for('members.members') }}">
+    <span class="card-icon">◎</span><h3>Участники</h3>
+    <p>CSV-импорт списка, поиск пользователей и выдача донатов.</p>
+    <span class="card-arrow">Открыть участников →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('edit_form.edit_form') }}">
+    <span class="card-icon">☷</span><h3>Блок вопросов</h3>
+    <p>Текст анкеты, которую пользователь получает по команде администратора.</p>
+    <span class="card-arrow">Открыть раздел →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('edit_levels.edit_levels') }}">
+    <span class="card-icon">◆</span><h3>Уровни пользователей</h3>
+    <p>Очки, звания, сообщения, картинки и кнопки для повышения уровней.</p>
+    <span class="card-arrow">Настроить уровни →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('images.images') }}">
+    <span class="card-icon">▧</span><h3>Набор изображений</h3>
+    <p>Загрузка, просмотр и удаление изображений, используемых ботом.</p>
+    <span class="card-arrow">Открыть галерею →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('edit_permission.edit_permission_messages') }}">
+    <span class="card-icon">◈</span><h3>Отсутствие доната</h3>
+    <p>Уведомления при попытке использовать недоступные медиа и функции.</p>
+    <span class="card-arrow">Изменить уведомления →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">
+    <span class="card-icon">◷</span><h3>Сроки донатов</h3>
+    <p>Лимиты, предупреждения об окончании срока и исчерпании функций.</p>
+    <span class="card-arrow">Настроить донаты →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('edit_other.edit_other') }}">
+    <span class="card-icon">⚙</span><h3>Все остальное</h3>
+    <p>Приветствие, правила, рейтинг, мифология, напоминания и мудрость.</p>
+    <span class="card-arrow">Открыть настройки →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('scheduled_messages.scheduled_messages_list') }}">
+    <span class="card-icon">◉</span><h3>Плановые сообщения</h3>
+    <p>Создание ежедневных рассылок, вариантов контента и расписания.</p>
+    <span class="card-arrow">Управлять рассылками →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('edit_badwords.edit_badwords') }}">
+    <span class="card-icon">⊘</span><h3>Список матов</h3>
+    <p>Префиксы и точные слова для автоматической фильтрации сообщений.</p>
+    <span class="card-arrow">Редактировать словарь →</span>
+  </a>
+  <a class="dashboard-card" href="{{ url_for('appearance.appearance') }}">
+    <span class="card-icon">◐</span><h3>Оформление</h3>
+    <p>Светлая и тёмная темы, Liquid Glass, акцентный цвет и прозрачность кнопок.</p>
+    <span class="card-arrow">Настроить интерфейс →</span>
+  </a>
+</section>
+{% endblock %}

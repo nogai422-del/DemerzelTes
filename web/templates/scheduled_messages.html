@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Плановые сообщения — Demerzel Control{% endblock %}
+{% block kicker %}Автоматические публикации{% endblock %}
+{% block page_title %}Плановые сообщения{% endblock %}
+{% block page_description %}Создавайте ежедневные рассылки, включайте и отключайте их, выбирайте фиксированное или случайное время отправки.{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Изменения сохранены</strong>Список плановых сообщений обновлён.</div></div>{% endif %}
+  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось выполнить действие</strong>{{ error }}</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите действие.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<section class="section-card compact">
+  <div class="section-header"><div><h2>Новая рассылка</h2><p>После создания откроется подробная настройка времени и содержимого.</p></div><span class="section-icon">＋</span></div>
+  <form method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="create">
+    <div class="form-grid">
+      <div class="form-group"><label>Название рассылки</label><input type="text" name="name" placeholder="Например: Утренний пост" required></div>
+      <div class="form-group" style="justify-content:flex-end;"><button type="submit">Создать рассылку</button></div>
+    </div>
+  </form>
+</section>
+
+<section class="section-card">
+  <div class="section-header"><div><h2>Текущие рассылки</h2><p>Всего кампаний: {{ campaigns|length }}</p></div><span class="section-icon">◉</span></div>
+  {% if campaigns %}
+  <div class="campaign-grid">
+    {% for c in campaigns %}
+    <article class="campaign-card">
+      <div class="campaign-top">
+        <div><h3>{{ c.name }}</h3><span style="color:var(--muted); font-size:11px;">Кампания #{{ c.id }}</span></div>
+        <span class="status-pill {{ 'status-on' if c.is_enabled else 'status-off' }}">{{ 'Включена' if c.is_enabled else 'Выключена' }}</span>
+      </div>
+      <div class="campaign-meta">
+        <div class="meta-cell"><small>Расписание</small><strong>{% if c.time_mode == 'fixed' %}Ежедневно в {{ c.fixed_time }}{% else %}Случайно {{ c.range_start }}–{{ c.range_end }}{% endif %}</strong></div>
+        <div class="meta-cell"><small>Последняя отправка</small><strong>{{ c.last_sent_date or 'Ещё не было' }}</strong></div>
+      </div>
+      <div class="button-row">
+        <a class="button" href="/scheduled_messages/{{ c.id }}">Настроить</a>
+        <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="toggle"><input type="hidden" name="campaign_id" value="{{ c.id }}"><button class="button button-secondary" type="submit">{{ 'Отключить' if c.is_enabled else 'Включить' }}</button></form>
+        <form method="POST" onsubmit="return confirm('Удалить рассылку и все её варианты?');"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="delete"><input type="hidden" name="campaign_id" value="{{ c.id }}"><button class="button button-danger" type="submit">Удалить</button></form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<div class="empty-state"><strong>Рассылок пока нет</strong>Создайте первую кампанию с помощью формы выше.</div>{% endif %}
+</section>
+{% endblock %}

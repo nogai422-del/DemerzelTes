@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Изображения — Demerzel Control{% endblock %}
+{% block kicker %}Медиатека бота{% endblock %}
+{% block page_title %}Набор изображений{% endblock %}
+{% block page_description %}Загружайте новые изображения и удаляйте неактуальные файлы из набора, который использует бот.{% endblock %}
+{% block notices %}
+  {% if uploaded == '1' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Изображение загружено</strong>Файл добавлен в медиатеку.</div></div>{% elif uploaded %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка загрузки</strong>Проверьте формат файла и повторите действие.</div></div>{% endif %}
+  {% if deleted == '1' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Изображение удалено</strong>Файл больше не находится в наборе.</div></div>{% elif deleted %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось удалить</strong>Обновите страницу и попробуйте ещё раз.</div></div>{% endif %}
+  {% if csrf == '0' %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите действие.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<section class="section-card compact">
+  <div class="section-header"><div><h2>Добавить изображение</h2><p>Поддерживаются JPG, JPEG, PNG и GIF.</p></div><span class="section-icon">＋</span></div>
+  <form method="POST" enctype="multipart/form-data">
+    <input type="hidden" name="action" value="upload"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="form-grid">
+      <div class="form-group"><label for="image-upload">Файл</label><input id="image-upload" type="file" name="image" accept=".jpg,.jpeg,.png,.gif" required></div>
+      <div class="form-group" style="justify-content:flex-end;"><button type="submit">Загрузить изображение</button></div>
+    </div>
+  </form>
+</section>
+<section class="section-card">
+  <div class="section-header"><div><h2>Галерея</h2><p>Всего файлов: {{ images|length }}</p></div><span class="section-icon">▧</span></div>
+  {% if images %}
+  <div class="gallery-grid">
+    {% for img in images %}
+    <article class="gallery-item">
+      <img src="{{ url_for('image.serve_image') }}?type=images&img={{ img }}" alt="{{ img }}" class="image" loading="lazy">
+      <p class="image-name" title="{{ img }}">{{ img }}</p>
+      <form method="POST" onsubmit="return confirm('Вы уверены, что хотите удалить это изображение?');">
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="filename" value="{{ img }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="delete-button" type="submit" data-no-loading="1" aria-label="Удалить изображение"></button>
+      </form>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}<div class="empty-state"><strong>Изображений пока нет</strong>Загрузите первый файл через форму выше.</div>{% endif %}
+</section>
+{% endblock %}

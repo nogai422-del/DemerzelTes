@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Отсутствие доната — Demerzel Control{% endblock %}
+{% block kicker %}Ограничения и разрешения{% endblock %}
+{% block page_title %}Отсутствие доната{% endblock %}
+{% block page_description %}Настройте сообщения, изображения и кнопки, которые получает пользователь при попытке использовать недоступную функцию.{% endblock %}
+{% block page_actions %}<a class="button button-secondary" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">Перейти к срокам донатов</a>{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Уведомления сохранены</strong>Обновлённые шаблоны уже используются ботом.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="info-panel">
+  <p>До команды <code>/save</code> бот использует единый шаблон «До сохранения анкеты». После сохранения включаются отдельные уведомления.</p>
+  <p>Для каждого пользователя остаётся только последнее предупреждение, а альбом из нескольких фотографий получает одно сообщение на всю пачку.</p>
+</div>
+<form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Шаблоны ограничений</h2><p>Раскройте нужный тип медиа и измените только необходимые поля.</p></div><span class="section-icon">◈</span></div>
+    {% for m in media_list %}
+      {% if m.media_type != "sticker" %}
+      <details class="settings-accordion" {% if m.media_type == 'onboarding' %}open{% endif %}>
+        <summary><span>{{ m.title }}<small class="accordion-subtitle">{% if m.media_type == 'onboarding' %}Общий шаблон до заполнения анкеты{% else %}Тип: {{ m.media_type }}{% endif %}</small></span></summary>
+        <div class="accordion-body">
+          {% if m.media_type == 'onboarding' %}<div class="info-panel"><p>Этот текст заменяет все отдельные уведомления, пока анкета пользователя не сохранена.</p></div>{% endif %}
+          <div class="form-grid">
+            <div class="form-group full"><label>Текст уведомления</label><textarea name="media[{{ m.media_type }}][message]" placeholder="Используйте {user}">{{ m.message }}</textarea><span class="field-help">Можно использовать подстановку <code>{user}</code>.</span></div>
+            {% if m.media_type != "emoji" %}
+            <div class="form-group full"><label>Изображение</label><div class="image-wrapper preview-frame">
+              {% if m.image_path %}{% set filename = m.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=permission&img={{ filename }}" alt="{{ m.title }}">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
+              <div class="form-group" style="flex:1; min-width:220px;"><input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}"><input class="upload-input" type="file" name="media[{{ m.media_type }}][upload]" accept=".jpg,.jpeg,.png,.gif"><span class="field-help">Загрузка нового файла заменяет текущее изображение.</span></div>
+            </div></div>
+            {% else %}<input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}">{% endif %}
+            <div class="form-group"><label>Текст кнопки</label><input type="text" name="media[{{ m.media_type }}][button_text]" value="{{ m.button_text or '' }}" placeholder="Заполнить анкету"></div>
+            <div class="form-group"><label>URL кнопки</label><input type="text" name="media[{{ m.media_type }}][button_url]" value="{{ m.button_url or '' }}" placeholder="https://"></div>
+          </div>
+        </div>
+      </details>
+      {% endif %}
+    {% endfor %}
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Реакции</h2><p>Отдельное сообщение для попытки поставить реакцию без уровня «Медиа 2».</p></div><span class="section-icon">♥</span></div>
+    <div class="info-panel"><p>До сохранения анкеты всё равно используется общий шаблон. Доступны: <code>{user}</code>, <code>{full_name}</code>, <code>{user_id}</code>, <code>{category}</code>.</p></div>
+    <div class="form-grid">
+      <div class="form-group full"><label>Текст уведомления</label><textarea name="reaction_denied[message]" placeholder="Используйте {user}">{{ reaction_denied.message }}</textarea></div>
+      <div class="form-group full"><label>Изображение</label><div class="image-wrapper preview-frame">
+        {% if reaction_denied.image_path %}{% set reaction_filename = reaction_denied.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=donation&img={{ reaction_filename }}" alt="Реакции">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
+        <div class="form-group" style="flex:1; min-width:220px;">
+          {% if reaction_denied.image_path %}<label style="font-weight:500;"><input type="checkbox" name="reaction_denied[remove_image]" value="1"> Удалить текущее изображение</label>{% endif %}
+          <input class="upload-input" type="file" name="reaction_denied[upload]" accept=".jpg,.jpeg,.png,.gif">
+        </div>
+      </div></div>
+      <div class="form-group"><label>Первая кнопка</label><input type="text" name="reaction_denied[button1_text]" value="{{ reaction_denied.button1_text or '' }}" placeholder="Текст кнопки"></div>
+      <div class="form-group"><label>URL первой кнопки</label><input type="text" name="reaction_denied[button1_url]" value="{{ reaction_denied.button1_url or '' }}" placeholder="https://"></div>
+      <div class="form-group"><label>Вторая кнопка</label><input type="text" name="reaction_denied[button2_text]" value="{{ reaction_denied.button2_text or '' }}" placeholder="Текст кнопки"></div>
+      <div class="form-group"><label>URL второй кнопки</label><input type="text" name="reaction_denied[button2_url]" value="{{ reaction_denied.button2_url or '' }}" placeholder="https://"></div>
+    </div>
+  </section>
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить уведомления</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='autoresize.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.upload-input').forEach(function (input) {
+    input.addEventListener('change', function () {
+      const file = input.files[0]; if (!file) return;
+      const wrapper = input.closest('.image-wrapper'); const preview = wrapper && wrapper.querySelector('img.preview');
+      const reader = new FileReader(); reader.onload = function (event) { if (preview) { preview.src = event.target.result; preview.style.display = 'block'; } }; reader.readAsDataURL(file);
+    });
+  });
+});
+</script>
+{% endblock %}

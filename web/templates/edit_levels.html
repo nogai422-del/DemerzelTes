@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Уровни — Demerzel Control{% endblock %}
+{% block kicker %}Рейтинг и прогресс{% endblock %}
+{% block page_title %}Уровни пользователей{% endblock %}
+{% block page_description %}Настройте пороги очков, названия званий, сообщения о повышении, изображения и кнопки для каждого уровня.{% endblock %}
+{% block page_actions %}<button type="button" class="button button-secondary" id="add-level-top">＋ Добавить уровень</button>{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Уровни сохранены</strong>Изменения применены к системе рейтинга.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Проверьте значения</strong>{{ error }}</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<form method="POST" enctype="multipart/form-data" id="levels-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div id="levels-container">
+    {% for lvl in levels %}
+    <section class="level-card" data-level="{{ lvl.level }}">
+      <div class="card-title-row"><div><span class="number-badge">{{ lvl.level }}</span> <strong>Уровень {{ lvl.level }}</strong></div><span class="status-pill status-on">Настроен</span></div>
+      <div class="form-grid">
+        <div class="form-group"><label>Количество очков</label><input type="number" min="0" name="levels[{{ lvl.level }}][points]" value="{{ lvl.points }}" placeholder="Например, 100" required></div>
+        <div class="form-group"><label>Название звания</label><input type="text" name="levels[{{ lvl.level }}][rank_name]" value="{{ lvl.rank_name }}" placeholder="Название уровня"></div>
+        <div class="form-group full"><label>Сообщение о повышении</label><textarea name="levels[{{ lvl.level }}][message]" placeholder="Используйте {user}">{{ lvl.message }}</textarea><span class="field-help">Подстановка <code>{user}</code> создаёт ссылку на пользователя.</span></div>
+        <div class="form-group full">
+          <label>Изображение уровня</label>
+          <div class="image-wrapper preview-frame">
+            {% if lvl.image_path %}{% set filename = lvl.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=levels&img={{ filename }}" alt="Изображение уровня {{ lvl.level }}">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
+            <div class="form-group" style="flex:1; min-width:220px;"><input type="hidden" name="levels[{{ lvl.level }}][image_path]" value="{{ lvl.image_path }}"><input class="upload-input" type="file" name="levels[{{ lvl.level }}][upload]" accept=".jpg,.jpeg,.png,.gif"><span class="field-help">Новое изображение заменит текущее после сохранения.</span></div>
+          </div>
+        </div>
+        <div class="form-group"><label>Текст кнопки</label><input type="text" name="levels[{{ lvl.level }}][button_text]" value="{{ lvl.button_text }}" placeholder="Открыть"></div>
+        <div class="form-group"><label>URL кнопки</label><input type="text" name="levels[{{ lvl.level }}][button_url]" value="{{ lvl.button_url }}" placeholder="https://"></div>
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+  <div class="sticky-actions">
+    <button type="button" id="delete-level" class="button button-danger">Удалить последний</button>
+    <button type="button" id="add-level" class="button button-secondary">＋ Добавить уровень</button>
+    <button type="submit">Сохранить уровни</button>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='autoresize.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const container = document.getElementById('levels-container');
+  const addButtons = [document.getElementById('add-level'), document.getElementById('add-level-top')].filter(Boolean);
+  const deleteButton = document.getElementById('delete-level');
+  let next = {{ (levels|map(attribute='level')|max if levels else 0) + 1 }};
+
+  function bindPreview(input) {
+    input.addEventListener('change', function () {
+      const file = input.files[0];
+      if (!file) return;
+      const img = input.closest('.level-card').querySelector('img.preview');
+      const reader = new FileReader();
+      reader.onload = function (event) { img.src = event.target.result; img.style.display = 'block'; };
+      reader.readAsDataURL(file);
+    });
+  }
+  document.querySelectorAll('.upload-input').forEach(bindPreview);
+
+  function addLevel() {
+    const level = next++;
+    const card = document.createElement('section');
+    card.className = 'level-card';
+    card.dataset.level = level;
+    card.innerHTML = `
+      <div class="card-title-row"><div><span class="number-badge">${level}</span> <strong>Уровень ${level}</strong></div><span class="status-pill status-off">Новый</span></div>
+      <div class="form-grid">
+        <div class="form-group"><label>Количество очков</label><input type="number" min="0" name="levels[${level}][points]" placeholder="Например, 100" required></div>
+        <div class="form-group"><label>Название звания</label><input type="text" name="levels[${level}][rank_name]" placeholder="Название уровня"></div>
+        <div class="form-group full"><label>Сообщение о повышении</label><textarea name="levels[${level}][message]" placeholder="Используйте {user}"></textarea><span class="field-help">Подстановка <code>{user}</code> создаёт ссылку на пользователя.</span></div>
+        <div class="form-group full"><label>Изображение уровня</label><div class="image-wrapper preview-frame"><img class="preview" src="" alt="" style="display:none;"><div class="form-group" style="flex:1; min-width:220px;"><input type="hidden" name="levels[${level}][image_path]" value=""><input class="upload-input" type="file" name="levels[${level}][upload]" accept=".jpg,.jpeg,.png,.gif"></div></div></div>
+        <div class="form-group"><label>Текст кнопки</label><input type="text" name="levels[${level}][button_text]" placeholder="Открыть"></div>
+        <div class="form-group"><label>URL кнопки</label><input type="text" name="levels[${level}][button_url]" placeholder="https://"></div>
+      </div>`;
+    container.appendChild(card);
+    bindPreview(card.querySelector('.upload-input'));
+    card.querySelector('textarea').dispatchEvent(new Event('input'));
+    card.scrollIntoView({behavior: 'smooth', block: 'center'});
+  }
+  addButtons.forEach((button) => button.addEventListener('click', addLevel));
+  deleteButton.addEventListener('click', function () {
+    const cards = container.querySelectorAll('.level-card');
+    if (!cards.length) return;
+    if (!confirm('Убрать последний уровень из формы?')) return;
+    cards[cards.length - 1].remove();
+    next = Math.max(1, next - 1);
+  });
+});
+</script>
+{% endblock %}

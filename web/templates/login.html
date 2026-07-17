@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ ui_settings.theme }}" data-ui-style="{{ ui_settings.ui_style }}" style="--accent: {{ ui_settings.accent_color }}; --accent-rgb: {{ ui_settings.accent_rgb }}; --button-opacity: {{ ui_settings.button_opacity }};">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>Вход — Demerzel Control</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+  <main class="login-shell">
+    <div class="login-brand"><span class="brand-mark">D</span><span class="brand-copy"><strong>Demerzel</strong><small>Control panel</small></span></div>
+    <section class="login-card">
+      <h1>Вход администратора</h1>
+      <p>Введите данные доступа к панели управления.</p>
+      {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось войти</strong>{{ error }}</div></div>{% endif %}
+      <form method="POST">
+        <div class="form-container">
+          <div class="form-group"><label for="username">Логин</label><input type="text" name="username" id="username" autocomplete="username" required></div>
+          <div class="form-group"><label for="password">Пароль</label><input type="password" name="password" id="password" autocomplete="current-password" required></div>
+          <button type="submit">Войти в панель</button>
+        </div>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

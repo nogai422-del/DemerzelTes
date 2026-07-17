@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Сроки донатов — Demerzel Control{% endblock %}
+{% block kicker %}Лимиты и завершение доступа{% endblock %}
+{% block page_title %}Окончание сроков донатов{% endblock %}
+{% block page_description %}Настройте стандартные суточные лимиты и отдельные сообщения для голосовых, смайлов, кружков и тега.{% endblock %}
+{% block page_actions %}<a class="button button-secondary" href="{{ url_for('edit_permission.edit_permission_messages') }}">Уведомления об отсутствии</a>{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки донатов сохранены</strong>Лимиты и шаблоны обновлены.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="info-panel">
+  <p>Пакеты короче 28 дней получают только сообщение об истечении. Для пакетов от 28 дней дополнительно отправляется предупреждение за 3 дня.</p>
+  <p>Подстановки: <code>{user}</code>, <code>{full_name}</code>, <code>{user_id}</code>, <code>{category}</code>, <code>{valid_until}</code>, <code>{days_left}</code>, <code>{limit}</code>, <code>{used_today}</code>.</p>
+</div>
+<form method="POST" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Лимиты по умолчанию</h2><p>Используются для старого формата команд и ранее выданных пакетов. В новом формате лимит задаётся в команде.</p></div><span class="section-icon">#</span></div>
+    <div class="form-grid cols-3">
+      <div class="form-group"><label>Голосовые в сутки</label><input type="number" min="1" max="100000" name="limits[voice]" value="{{ limits.get('voice', 20) }}" required><span class="field-help"><code>/voice 28d 90</code></span></div>
+      <div class="form-group"><label>Смайлики в сутки</label><input type="number" min="1" max="100000" name="limits[emoji]" value="{{ limits.get('emoji', 50) }}" required><span class="field-help"><code>/emoji 28d 75</code></span></div>
+      <div class="form-group"><label>Кружки в сутки</label><input type="number" min="1" max="100000" name="limits[video_note]" value="{{ limits.get('video_note', 10) }}" required><span class="field-help"><code>/circle 30d 105</code></span></div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Просмотр донат-функций</h2><p>Время, через которое сообщения команд автоматически удаляются. Значение 0 оставляет сообщение в чате.</p></div><span class="section-icon">⌛</span></div>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Сообщение пользователя <code>/viewd</code>, секунд</label>
+        <input type="number" min="0" max="86400" name="view_timers[viewd]" value="{{ view_timers.get('viewd', 30) }}" required>
+        <span class="field-help">По умолчанию 30 секунд. Команда показывает донаты самого пользователя.</span>
+      </div>
+      <div class="form-group">
+        <label>Админский просмотр <code>/viewmd</code>, секунд</label>
+        <input type="number" min="0" max="86400" name="view_timers[viewmd]" value="{{ view_timers.get('viewmd', 30) }}" required>
+        <span class="field-help">Администратор использует команду ответом на сообщение пользователя или передаёт его Telegram ID.</span>
+      </div>
+    </div>
+  </section>
+
+  {% for group in categories %}
+  <section class="section-card">
+    <div class="section-header"><div><h2>{{ group.title }}</h2><p>Каждый этап уведомления настраивается отдельно.</p></div><span class="section-icon">◷</span></div>
+    {% for item in group.templates %}
+      {% set prefix = 'template[' ~ item.category ~ '][' ~ item.event_type ~ ']' %}
+      <details class="settings-accordion" {% if loop.first %}open{% endif %}>
+        <summary><span>{{ item.event_title }}<small class="accordion-subtitle">Категория: {{ item.category }} · событие: {{ item.event_type }}</small></span></summary>
+        <div class="accordion-body">
+          <div class="form-grid">
+            <div class="form-group full"><label>Текст уведомления</label><textarea name="{{ prefix }}[message]" placeholder="Используйте {user}">{{ item.message }}</textarea></div>
+            <div class="form-group full"><label>Изображение</label><div class="image-wrapper preview-frame">
+              {% if item.image_path %}{% set filename = item.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=donation&img={{ filename }}" alt="{{ item.event_title }}">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
+              <div class="form-group" style="flex:1; min-width:220px;">
+                {% if item.image_path %}<label style="font-weight:500;"><input type="checkbox" name="{{ prefix }}[remove_image]" value="1"> Удалить текущее изображение</label>{% endif %}
+                <input class="upload-input" type="file" name="{{ prefix }}[upload]" accept=".jpg,.jpeg,.png,.gif">
+              </div>
+            </div></div>
+            <div class="form-group"><label>Первая кнопка</label><input type="text" name="{{ prefix }}[button1_text]" value="{{ item.button1_text or '' }}" placeholder="Текст кнопки"></div>
+            <div class="form-group"><label>URL первой кнопки</label><input type="text" name="{{ prefix }}[button1_url]" value="{{ item.button1_url or '' }}" placeholder="https://"></div>
+            <div class="form-group"><label>Вторая кнопка</label><input type="text" name="{{ prefix }}[button2_text]" value="{{ item.button2_text or '' }}" placeholder="Текст кнопки"></div>
+            <div class="form-group"><label>URL второй кнопки</label><input type="text" name="{{ prefix }}[button2_url]" value="{{ item.button2_url or '' }}" placeholder="https://"></div>
+          </div>
+        </div>
+      </details>
+    {% endfor %}
+  </section>
+  {% endfor %}
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить настройки донатов</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='autoresize.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('.upload-input').forEach(function (input) {
+    input.addEventListener('change', function () {
+      const file = input.files[0]; if (!file) return;
+      const wrapper = input.closest('.image-wrapper'); const preview = wrapper && wrapper.querySelector('img.preview');
+      const reader = new FileReader(); reader.onload = function (event) { if (preview) { preview.src = event.target.result; preview.style.display = 'block'; } }; reader.readAsDataURL(file);
+    });
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Блок вопросов — Demerzel Control{% endblock %}
+{% block kicker %}Анкета пользователя{% endblock %}
+{% block page_title %}Блок вопросов{% endblock %}
+{% block page_description %}Отредактируйте текст анкеты. Конструкция <code>{quote}...{/quote}</code> создаёт раскрываемую цитату в Telegram.{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Изменения сохранены</strong>Новый текст анкеты уже используется ботом.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Текст анкеты</h2><p>Сохраняется один общий шаблон для команды <code>/bv</code>.</p></div><span class="section-icon">☷</span></div>
+    <div class="form-group">
+      <label for="form-content">Содержимое сообщения</label>
+      <textarea id="form-content" name="content" required style="height: {{ textarea_height }}px;" spellcheck="true">{{ content | e }}</textarea>
+      <span class="field-help">Поддерживаются переносы строк и конструкция раскрываемой цитаты.</span>
+    </div>
+  </section>
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить анкету</button></div>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='autoresize.js') }}"></script>{% endblock %}

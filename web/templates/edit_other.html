@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Прочие настройки — Demerzel Control{% endblock %}
+{% block kicker %}Общие сообщения бота{% endblock %}
+{% block page_title %}Все остальное{% endblock %}
+{% block page_description %}Приветствие, правила, рейтинг, мифология, интервалы напоминаний и таймер мудрости — все прежние параметры сохранены.{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Новые тексты и значения уже записаны.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите действие.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Приветственное сообщение</h2><p>Отправляется новым участникам и может содержать две кнопки.</p></div><span class="section-icon">✦</span></div>
+    <div class="form-grid">
+      <div class="form-group full"><label>Текст приветствия</label><textarea name="other[welcome_text]">{{ other.get('welcome_text','') }}</textarea></div>
+      <div class="form-group"><label>Текст первой кнопки</label><input type="text" name="other[welcome_button]" value="{{ other.get('welcome_button','') }}"></div>
+      <div class="form-group"><label>URL первой кнопки</label><input type="text" name="other[welcome_url]" value="{{ other.get('welcome_url','') }}" placeholder="https://"></div>
+      <div class="form-group"><label>Текст второй кнопки</label><input type="text" name="other[welcome_button2]" value="{{ other.get('welcome_button2','') }}"></div>
+      <div class="form-group"><label>URL второй кнопки</label><input type="text" name="other[welcome_url2]" value="{{ other.get('welcome_url2','') }}" placeholder="https://"></div>
+    </div>
+  </section>
+  {% set blocks = [
+    ('Информация о правилах','rules_text','rules_button','rules_url','Текст, который знакомит пользователя с правилами.','⌘'),
+    ('Информация о рейтинге','rating_info_text','rating_button','rating_url','Описание рейтинга и переход к подробной информации.','◆'),
+    ('Информация о мифологии','myth_text','myth_button','myth_url','Сообщение с информацией о мифологии пространства.','◌')
+  ] %}
+  {% for title, text_key, button_key, url_key, help_text, icon in blocks %}
+  <section class="section-card">
+    <div class="section-header"><div><h2>{{ title }}</h2><p>{{ help_text }}</p></div><span class="section-icon">{{ icon }}</span></div>
+    <div class="form-grid"><div class="form-group full"><label>Текст сообщения</label><textarea name="other[{{ text_key }}]">{{ other.get(text_key,'') }}</textarea></div><div class="form-group"><label>Текст кнопки</label><input type="text" name="other[{{ button_key }}]" value="{{ other.get(button_key,'') }}"></div><div class="form-group"><label>URL кнопки</label><input type="text" name="other[{{ url_key }}]" value="{{ other.get(url_key,'') }}" placeholder="https://"></div></div>
+  </section>
+  {% endfor %}
+  <section class="section-card">
+    <div class="section-header"><div><h2>Интервалы напоминаний</h2><p>Количество сообщений пользователя до очередного уведомления.</p></div><span class="section-icon">#</span></div>
+    <div class="form-grid cols-3">
+      <div class="form-group"><label>О правилах</label><input type="number" name="other[rules_reminder_message_number]" value="{{ other.get('rules_reminder_message_number','') }}"></div>
+      <div class="form-group"><label>О рейтинге</label><input type="number" name="other[rating_reminder_message_number]" value="{{ other.get('rating_reminder_message_number','') }}"></div>
+      <div class="form-group"><label>О мифологии</label><input type="number" name="other[myth_reminder_message_number]" value="{{ other.get('myth_reminder_message_number','') }}"></div>
+    </div>
+  </section>
+  <section class="section-card compact">
+    <div class="section-header"><div><h2>Таймер мудрости</h2><p>Интервал отправки автоматической мудрости в минутах.</p></div><span class="section-icon">◷</span></div>
+    <div class="form-group"><label>Время, минуты</label><input type="number" min="0" name="other[wisdom_timer_minutes]" value="{{ other.get('wisdom_timer_minutes','') }}"></div>
+  </section>
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('index') }}">Отменить</a><button type="submit">Сохранить настройки</button></div>
+</form>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='autoresize.js') }}"></script>{% endblock %}

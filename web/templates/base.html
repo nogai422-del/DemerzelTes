@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="{{ ui_settings.theme }}" data-ui-style="{{ ui_settings.ui_style }}" style="--accent: {{ ui_settings.accent_color }}; --accent-rgb: {{ ui_settings.accent_rgb }}; --button-opacity: {{ ui_settings.button_opacity }};">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>{% block title %}Demerzel Control{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="admin-body {% block body_class %}{% endblock %}">
+  <div class="mobile-overlay" data-sidebar-close></div>
+  <aside class="sidebar" id="admin-sidebar">
+    <a class="brand" href="{{ url_for('index') }}" aria-label="На главную">
+      <span class="brand-mark">D</span>
+      <span class="brand-copy">
+        <strong>Demerzel</strong>
+        <small>Control panel</small>
+      </span>
+    </a>
+
+    <nav class="sidebar-nav" aria-label="Разделы панели">
+      <span class="nav-caption">Управление</span>
+      <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{{ url_for('index') }}">
+        <span class="nav-icon">⌂</span><span>Главная</span>
+      </a>
+      <a class="nav-link {% if request.path == '/members' %}active{% endif %}" href="{{ url_for('members.members') }}">
+        <span class="nav-icon">◎</span><span>Участники</span>
+      </a>
+      <a class="nav-link {% if request.path == '/edit_form' %}active{% endif %}" href="{{ url_for('edit_form.edit_form') }}">
+        <span class="nav-icon">☷</span><span>Блок вопросов</span>
+      </a>
+      <a class="nav-link {% if request.path == '/edit_levels' %}active{% endif %}" href="{{ url_for('edit_levels.edit_levels') }}">
+        <span class="nav-icon">◆</span><span>Уровни</span>
+      </a>
+      <a class="nav-link {% if request.path == '/images' %}active{% endif %}" href="{{ url_for('images.images') }}">
+        <span class="nav-icon">▧</span><span>Изображения</span>
+      </a>
+
+      <span class="nav-caption">Донаты и доступы</span>
+      <a class="nav-link {% if request.path == '/edit_permission_messages' %}active{% endif %}" href="{{ url_for('edit_permission.edit_permission_messages') }}">
+        <span class="nav-icon">◈</span><span>Отсутствие доната</span>
+      </a>
+      <a class="nav-link {% if request.path == '/edit_donation_notifications' %}active{% endif %}" href="{{ url_for('edit_donation_notifications.edit_donation_notifications') }}">
+        <span class="nav-icon">◷</span><span>Сроки донатов</span>
+      </a>
+
+      <span class="nav-caption">Контент</span>
+      <a class="nav-link {% if request.path == '/edit_other' %}active{% endif %}" href="{{ url_for('edit_other.edit_other') }}">
+        <span class="nav-icon">⚙</span><span>Все остальное</span>
+      </a>
+      <a class="nav-link {% if request.path.startswith('/scheduled_messages') %}active{% endif %}" href="{{ url_for('scheduled_messages.scheduled_messages_list') }}">
+        <span class="nav-icon">◉</span><span>Плановые сообщения</span>
+      </a>
+      <a class="nav-link {% if request.path == '/edit_badwords' %}active{% endif %}" href="{{ url_for('edit_badwords.edit_badwords') }}">
+        <span class="nav-icon">⊘</span><span>Словарь матов</span>
+      </a>
+
+      <span class="nav-caption">Интерфейс</span>
+      <a class="nav-link {% if request.path == '/appearance' %}active{% endif %}" href="{{ url_for('appearance.appearance') }}">
+        <span class="nav-icon">◐</span><span>Оформление</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="profile-chip">
+        <span class="profile-avatar">{{ (session.get('username') or 'A')[0]|upper }}</span>
+        <span class="profile-meta">
+          <strong>{{ session.get('username', 'Администратор') }}</strong>
+          <small>Доступ разрешён</small>
+        </span>
+      </div>
+      <a class="logout-link" href="{{ url_for('auth.logout') }}">Выйти из панели <span>↗</span></a>
+    </div>
+  </aside>
+
+  <main class="main-shell">
+    <header class="topbar">
+      <button class="icon-button menu-toggle" type="button" data-sidebar-open aria-label="Открыть меню">☰</button>
+      <div class="topbar-status"><span class="status-dot"></span> Панель подключена</div>
+      <a class="icon-button appearance-shortcut" href="{{ url_for('appearance.appearance') }}" aria-label="Настроить оформление" title="Оформление">◐</a>
+      <a class="topbar-home" href="{{ url_for('index') }}">Demerzel Admin</a>
+    </header>
+
+    <div class="content-shell">
+      <header class="page-header">
+        <div>
+          <div class="page-kicker">{% block kicker %}Панель управления{% endblock %}</div>
+          <h1>{% block page_title %}Demerzel{% endblock %}</h1>
+          <p class="page-description">{% block page_description %}{% endblock %}</p>
+        </div>
+        <div class="page-actions">{% block page_actions %}{% endblock %}</div>
+      </header>
+
+      {% block notices %}{% endblock %}
+      {% block content %}{% endblock %}
+
+      <footer class="page-footer">
+        <span>Demerzel Control</span>
+        <span>Все изменения применяются к текущей конфигурации бота</span>
+      </footer>
+    </div>
+  </main>
+
+  <script src="{{ url_for('static', filename='admin.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

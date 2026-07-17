@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Рассылка {{ campaign.name }} — Demerzel Control{% endblock %}
+{% block kicker %}Настройка автоматической публикации{% endblock %}
+{% block page_title %}{{ campaign.name }}{% endblock %}
+{% block page_description %}Настройте расписание, режим выбора контента, изображения и кнопки для этой рассылки.{% endblock %}
+{% block page_actions %}<a class="button button-secondary" href="{{ url_for('scheduled_messages.scheduled_messages_list') }}">← К списку рассылок</a>{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Рассылка сохранена</strong>Расписание и варианты контента обновлены.</div></div>{% endif %}
+  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Проверьте настройки</strong>{{ error }}</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<form method="POST" enctype="multipart/form-data" class="scheduled-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Основные параметры</h2><p>Время указывается в формате HH:MM.</p></div><span class="section-icon">◷</span></div>
+    <div class="form-grid cols-3">
+      <div class="form-group full"><label>Название</label><input type="text" name="name" value="{{ campaign.name }}" required></div>
+      <div class="form-group"><label>Состояние</label><select name="is_enabled" id="is_enabled"><option value="1" {% if campaign.is_enabled %}selected{% endif %}>Включена</option><option value="0" {% if not campaign.is_enabled %}selected{% endif %}>Выключена</option></select></div>
+      <div class="form-group"><label>Режим времени</label><select name="time_mode" id="time_mode"><option value="fixed" {% if campaign.time_mode == 'fixed' %}selected{% endif %}>Фиксированное время</option><option value="range" {% if campaign.time_mode == 'range' %}selected{% endif %}>Случайно в диапазоне</option></select></div>
+      <div class="form-group" id="fixed_time_wrap"><label>Время отправки</label><input type="text" name="fixed_time" value="{{ campaign.fixed_time }}" placeholder="HH:MM"></div>
+      <div class="form-group" id="range_start_wrap"><label>Начало диапазона</label><input type="text" name="range_start" value="{{ campaign.range_start }}" placeholder="HH:MM"></div>
+      <div class="form-group" id="range_end_wrap"><label>Конец диапазона</label><input type="text" name="range_end" value="{{ campaign.range_end }}" placeholder="HH:MM"></div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Режим содержимого</h2><p>Определите, можно ли выбирать случайный вариант и использовать медиа.</p></div><span class="section-icon">⚙</span></div>
+    <div class="form-grid cols-3">
+      <div class="form-group"><label>Случайный вариант</label><select id="random_variant_mode" name="random_variant_mode"><option value="1" {% if random_variant_mode %}selected{% endif %}>Да</option><option value="0" {% if not random_variant_mode %}selected{% endif %}>Нет</option></select></div>
+      <div class="form-group"><label>Использовать картинки</label><select id="enable_images" name="enable_images"><option value="1" {% if enable_images %}selected{% endif %}>Да</option><option value="0" {% if not enable_images %}selected{% endif %}>Нет</option></select></div>
+      <div class="form-group"><label>Использовать кнопки</label><select id="enable_buttons" name="enable_buttons"><option value="1" {% if enable_buttons %}selected{% endif %}>Да</option><option value="0" {% if not enable_buttons %}selected{% endif %}>Нет</option></select></div>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2 id="variants_header">Варианты контента</h2><p>При включённом случайном режиме бот выбирает один из вариантов перед отправкой.</p></div><button type="button" class="button button-secondary" id="add_variant_btn">＋ Добавить вариант</button></div>
+    <div id="variants_container">
+      {% for v in variants %}
+      <article class="variant-card" data-index="{{ loop.index0 }}">
+        <div class="card-title-row"><div><span class="number-badge variant-number">{{ loop.index }}</span> <strong class="variant-title">Вариант {{ loop.index }}</strong></div><button type="button" class="button button-danger remove-variant">Удалить</button></div>
+        <div class="form-grid">
+          <div class="form-group full"><label>Текст сообщения</label><textarea name="variant[{{ loop.index0 }}][text]" placeholder="Текст сообщения">{{ v.text }}</textarea></div>
+          <div class="form-group button-field-row"><label>Текст кнопки</label><input type="text" name="variant[{{ loop.index0 }}][button_text]" value="{{ v.button_text }}"></div>
+          <div class="form-group button-field-row"><label>URL кнопки</label><input type="text" name="variant[{{ loop.index0 }}][button_url]" value="{{ v.button_url }}" placeholder="https://"></div>
+          <div class="form-group full image-fields"><label>Картинка</label><div class="image-wrapper preview-frame">
+            <div class="image-container">
+              {% if v.image_path %}{% set filename = v.image_path.split('/')[-1] %}<img class="preview image" src="{{ url_for('image.serve_image') }}?type=scheduled&img={{ filename }}" alt="Изображение варианта"><button class="delete-button remove-image-btn" type="button" aria-label="Удалить изображение"></button>{% else %}<img class="preview image" src="" alt="" style="display:none;"><button class="delete-button remove-image-btn" type="button" aria-label="Удалить изображение" style="display:none;"></button>{% endif %}
+            </div>
+            <div class="form-group" style="flex:1; min-width:220px;"><input class="upload-input" type="file" name="variant[{{ loop.index0 }}][upload]" accept=".jpg,.jpeg,.png,.gif"><input type="hidden" name="variant[{{ loop.index0 }}][image_path]" value="{{ v.image_path or '' }}"><input type="hidden" name="variant[{{ loop.index0 }}][remove_image]" value="0" class="remove-image-flag"></div>
+          </div></div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  <div class="sticky-actions"><a class="button button-ghost" href="{{ url_for('scheduled_messages.scheduled_messages_list') }}">Отменить</a><button type="submit">Сохранить рассылку</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='autoresize.js') }}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const timeMode = document.getElementById('time_mode');
+  const randomMode = document.getElementById('random_variant_mode');
+  const enableImages = document.getElementById('enable_images');
+  const enableButtons = document.getElementById('enable_buttons');
+  const container = document.getElementById('variants_container');
+  const addButton = document.getElementById('add_variant_btn');
+  let nextIndex = Math.max(0, ...Array.from(container.querySelectorAll('.variant-card')).map(card => Number(card.dataset.index) + 1));
+
+  function toggleTimeFields() {
+    const range = timeMode.value === 'range';
+    document.getElementById('fixed_time_wrap').style.display = range ? 'none' : 'flex';
+    document.getElementById('range_start_wrap').style.display = range ? 'flex' : 'none';
+    document.getElementById('range_end_wrap').style.display = range ? 'flex' : 'none';
+  }
+  function updateNumbers() {
+    container.querySelectorAll('.variant-card').forEach((card, index) => {
+      card.querySelector('.variant-number').textContent = index + 1;
+      card.querySelector('.variant-title').textContent = `Вариант ${index + 1}`;
+    });
+  }
+  function refreshVisibility() {
+    const random = randomMode.value === '1';
+    const images = enableImages.value === '1';
+    const buttons = enableButtons.value === '1';
+    addButton.style.display = random ? 'inline-flex' : 'none';
+    container.querySelectorAll('.remove-variant').forEach((button) => button.style.display = random ? 'inline-flex' : 'none');
+    container.querySelectorAll('.image-fields').forEach((field) => field.style.display = images ? 'flex' : 'none');
+    container.querySelectorAll('.button-field-row').forEach((field) => field.style.display = buttons ? 'flex' : 'none');
+  }
+  function keepSingleVariant() {
+    if (randomMode.value === '1') return;
+    const cards = Array.from(container.querySelectorAll('.variant-card'));
+    cards.slice(1).forEach(card => card.remove());
+    updateNumbers();
+  }
+  function bindTextarea(card) {
+    const textarea = card.querySelector('textarea');
+    if (textarea) textarea.dispatchEvent(new Event('input'));
+  }
+  function createVariant() {
+    const idx = nextIndex++;
+    const card = document.createElement('article');
+    card.className = 'variant-card';
+    card.dataset.index = idx;
+    card.innerHTML = `
+      <div class="card-title-row"><div><span class="number-badge variant-number"></span> <strong class="variant-title"></strong></div><button type="button" class="button button-danger remove-variant">Удалить</button></div>
+      <div class="form-grid">
+        <div class="form-group full"><label>Текст сообщения</label><textarea name="variant[${idx}][text]" placeholder="Текст сообщения"></textarea></div>
+        <div class="form-group button-field-row"><label>Текст кнопки</label><input type="text" name="variant[${idx}][button_text]" value=""></div>
+        <div class="form-group button-field-row"><label>URL кнопки</label><input type="text" name="variant[${idx}][button_url]" value="" placeholder="https://"></div>
+        <div class="form-group full image-fields"><label>Картинка</label><div class="image-wrapper preview-frame"><div class="image-container"><img class="preview image" src="" alt="" style="display:none;"><button class="delete-button remove-image-btn" type="button" aria-label="Удалить изображение" style="display:none;"></button></div><div class="form-group" style="flex:1; min-width:220px;"><input class="upload-input" type="file" name="variant[${idx}][upload]" accept=".jpg,.jpeg,.png,.gif"><input type="hidden" name="variant[${idx}][image_path]" value=""><input type="hidden" name="variant[${idx}][remove_image]" value="0" class="remove-image-flag"></div></div></div>
+      </div>`;
+    container.appendChild(card);
+    updateNumbers(); refreshVisibility(); bindTextarea(card);
+    card.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+
+  timeMode.addEventListener('change', toggleTimeFields);
+  randomMode.addEventListener('change', function () { keepSingleVariant(); refreshVisibility(); });
+  enableImages.addEventListener('change', refreshVisibility);
+  enableButtons.addEventListener('change', refreshVisibility);
+  addButton.addEventListener('click', createVariant);
+
+  container.addEventListener('click', function (event) {
+    const removeVariant = event.target.closest('.remove-variant');
+    if (removeVariant) {
+      const cards = container.querySelectorAll('.variant-card');
+      if (cards.length <= 1) return alert('Нужен хотя бы один вариант.');
+      removeVariant.closest('.variant-card').remove(); updateNumbers(); return;
+    }
+    const removeImage = event.target.closest('.remove-image-btn');
+    if (removeImage) {
+      const card = removeImage.closest('.variant-card');
+      const preview = card.querySelector('img.preview');
+      const upload = card.querySelector('.upload-input');
+      const path = card.querySelector('input[name*="[image_path]"]');
+      const flag = card.querySelector('.remove-image-flag');
+      preview.src = ''; preview.style.display = 'none'; removeImage.style.display = 'none';
+      upload.value = ''; path.value = ''; flag.value = '1';
+    }
+  });
+  container.addEventListener('change', function (event) {
+    if (!event.target.classList.contains('upload-input')) return;
+    const input = event.target; const file = input.files[0]; if (!file) return;
+    const card = input.closest('.variant-card'); const preview = card.querySelector('img.preview'); const remove = card.querySelector('.remove-image-btn'); const flag = card.querySelector('.remove-image-flag');
+    const reader = new FileReader(); reader.onload = function (e) { preview.src = e.target.result; preview.style.display = 'block'; remove.style.display = 'grid'; flag.value = '0'; }; reader.readAsDataURL(file);
+  });
+
+  toggleTimeFields(); keepSingleVariant(); refreshVisibility(); updateNumbers();
+});
+</script>
+{% endblock %}

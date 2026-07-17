@@ -1,0 +1,22 @@
+# Запуск
+cd Путь/Demerzel
+source venv/bin/activate
+nohup python3 run.py
+
+# Остановка
+ps aux | grep run
+Находим нужный PID
+kill PID
+
+# Запуск в Windows
+cd Путь\Demerzel
+venv\Scripts\activate
+py run.py
+
+# Зависимости
+cd Путь/Demerzel
+python3 -m venv venv
+pip install -r requirements.txt
+
+# Настройка системного времени на сервере
+sudo timedatectl set-timezone Europe/Moscow
