@@ -15,6 +15,7 @@ from bot.donations import (
     get_expiry_notification_settings,
 )
 from bot.warning_state import ensure_warning_schema
+from bot.notification_delivery import resolve_notification_source_path
 from bot.settings import (
     ensure_chat_behavior_schema,
     get_restrict_new_members_telegram,
@@ -26,7 +27,7 @@ def create_app():
     app = Flask(__name__)
     app.secret_key = require_env("FLASK_SECRET_KEY")
     app.config.update(
-        MAX_CONTENT_LENGTH=12 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=22 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.getenv("SESSION_COOKIE_SECURE", "0") == "1",
@@ -102,14 +103,42 @@ def create_app():
                 "SELECT COUNT(*) FROM permission_types WHERE media_type LIKE 'form_filling:%'"
             )
             filling_templates = int((await cur.fetchone())[0])
+            await cur.execute(
+                """SELECT COUNT(*) FROM (
+                       SELECT chat_id, user_id, COUNT(*) AS c
+                       FROM chat_users GROUP BY chat_id, user_id HAVING c > 1
+                   )"""
+            )
+            chat_user_duplicates = int((await cur.fetchone())[0])
+            await cur.execute(
+                "SELECT image_path FROM permission_types "
+                "WHERE TRIM(COALESCE(image_path,'')) <> ''"
+            )
+            notification_paths = [str(row[0]) for row in await cur.fetchall()]
+            await cur.execute(
+                "SELECT image_path FROM donation_notification_templates "
+                "WHERE TRIM(COALESCE(image_path,'')) <> ''"
+            )
+            notification_paths.extend(str(row[0]) for row in await cur.fetchall())
+        missing_images = sum(
+            1 for path in notification_paths
+            if (resolve_notification_source_path(path) is None
+                or not resolve_notification_source_path(path).is_file())
+        )
         missing = [name for name in required if name not in tables]
         templates_ready = filling_templates >= 12
-        ok = not missing and templates_ready
+        ok = (
+            not missing
+            and templates_ready
+            and chat_user_duplicates == 0
+        )
         status = 200 if ok else 503
         return jsonify({
             "status": "ok" if ok else "error",
             "missing_tables": missing,
             "form_filling_templates": filling_templates,
+            "chat_user_duplicates": chat_user_duplicates,
+            "notification_images_missing": missing_images,
         }), status
 
     # Редиректит на стартовую страницу панели после авторизации.

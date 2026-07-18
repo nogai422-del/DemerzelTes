@@ -7,6 +7,7 @@
 {% block notices %}
   {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки донатов сохранены</strong>Лимиты и шаблоны обновлены.</div></div>{% endif %}
   {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+  {% if image_error == "1" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Картинка не сохранена</strong>Файл повреждён, слишком большой или имеет неподдерживаемый формат. Текстовые уведомления продолжают работать.</div></div>{% endif %}
 {% endblock %}
 {% block content %}
 <div class="info-panel">
@@ -79,8 +80,8 @@
               {% if item.image_path %}{% set filename = item.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=donation&img={{ filename }}" alt="{{ item.event_title }}">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
               <div class="form-group" style="flex:1; min-width:220px;">
                 {% if item.image_path %}<label style="font-weight:500;"><input type="checkbox" name="{{ prefix }}[remove_image]" value="1"> Удалить текущее изображение</label>{% endif %}
-                <input class="upload-input" type="file" name="{{ prefix }}[upload]" accept=".jpg,.jpeg,.png,.gif">
-              </div>
+                <input class="upload-input" type="file" name="{{ prefix }}[upload]" accept=".jpg,.jpeg,.png,.gif,.webp">
+              <span class="field-help">Файл проверяется и подготавливается для Telegram. Если медиа не отправится, бот всё равно отправит текст.</span></div>
             </div></div>
             <div class="form-group"><label>Первая кнопка</label><input type="text" name="{{ prefix }}[button1_text]" value="{{ item.button1_text or '' }}" placeholder="Текст кнопки"></div>
             <div class="form-group"><label>URL первой кнопки</label><input type="text" name="{{ prefix }}[button1_url]" value="{{ item.button1_url or '' }}" placeholder="https://"></div>

@@ -7,6 +7,7 @@
 {% block notices %}
   {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Оповещения сохранены</strong>Новые тексты уже используются ботом.</div></div>{% endif %}
   {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+  {% if image_error == "1" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Картинка не сохранена</strong>Файл повреждён, слишком большой или имеет неподдерживаемый формат. Тексты и предыдущие изображения не были сломаны.</div></div>{% endif %}
 {% endblock %}
 
 {% macro notification_editor(m, open=false, subtitle='') %}
@@ -33,8 +34,9 @@
           {% endif %}
           <div class="form-group" style="flex:1; min-width:220px;">
             <input type="hidden" name="media[{{ m.media_type }}][image_path]" value="{{ m.image_path or '' }}">
-            <input class="upload-input" type="file" name="media[{{ m.media_type }}][upload]" accept=".jpg,.jpeg,.png,.gif">
-            <span class="field-help">Новый файл заменит текущее изображение только у этого этапа.</span>
+            {% if m.image_path %}<label style="font-weight:500;"><input type="checkbox" name="media[{{ m.media_type }}][remove_image]" value="1"> Удалить текущее изображение</label>{% endif %}
+            <input class="upload-input" type="file" name="media[{{ m.media_type }}][upload]" accept=".jpg,.jpeg,.png,.gif,.webp">
+            <span class="field-help">JPG, PNG, WEBP и GIF до 20 МБ. Файл проверяется и автоматически подготавливается для Telegram. Ошибка картинки не отключает текст уведомления.</span>
           </div>
         </div>
       </div>
@@ -99,7 +101,7 @@
         {% if reaction_denied.image_path %}{% set reaction_filename = reaction_denied.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=donation&img={{ reaction_filename }}" alt="Реакции">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
         <div class="form-group" style="flex:1; min-width:220px;">
           {% if reaction_denied.image_path %}<label style="font-weight:500;"><input type="checkbox" name="reaction_denied[remove_image]" value="1"> Удалить текущее изображение</label>{% endif %}
-          <input class="upload-input" type="file" name="reaction_denied[upload]" accept=".jpg,.jpeg,.png,.gif">
+          <input class="upload-input" type="file" name="reaction_denied[upload]" accept=".jpg,.jpeg,.png,.gif,.webp">
         </div>
       </div></div>
       <div class="form-group"><label>Первая кнопка</label><input type="text" name="reaction_denied[button1_text]" value="{{ reaction_denied.button1_text or '' }}" placeholder="Текст кнопки"></div>

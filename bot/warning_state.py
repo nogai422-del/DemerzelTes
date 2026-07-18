@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from bot.database import db
+from bot.notification_delivery import resolve_notification_source_path
 
 _SCHEMA_READY = False
 _WARNING_LOCKS: defaultdict[tuple[int, int], asyncio.Lock] = defaultdict(asyncio.Lock)
@@ -247,6 +248,25 @@ async def ensure_warning_schema() -> None:
                 (form_filling_permission_type(permission_type), title, message),
             )
 
+        # Удаляем только мёртвые ссылки на файлы. Такие ссылки остаются после
+        # старых пересборок Bothost, когда БД сохранялась, а uploads внутри
+        # контейнера исчезали. Тексты и кнопки не затрагиваются.
+        await cur.execute(
+            "SELECT media_type, image_path FROM permission_types "
+            "WHERE TRIM(COALESCE(image_path,'')) <> ''"
+        )
+        stale_types = []
+        for media_type, image_path in await cur.fetchall():
+            source = resolve_notification_source_path(str(image_path or ""))
+            if source is None or not source.is_file():
+                stale_types.append(str(media_type))
+        if stale_types:
+            await cur.executemany(
+                "UPDATE permission_types SET image_path='' WHERE media_type=?",
+                [(item,) for item in stale_types],
+            )
+            print(f"Удалены мёртвые ссылки картинок оповещений: {len(stale_types)}")
+
     _SCHEMA_READY = True
 
 
@@ -265,7 +285,10 @@ async def get_form_stage(chat_id: int, user_id: int) -> str:
         )
         row = await cur.fetchone()
 
-        if row and str(row[0] or "").strip():
+        if row and (
+            str(row[0] or "").strip()
+            or str(row[1] or "").strip() == FORM_STAGE_SAVED
+        ):
             return FORM_STAGE_SAVED
         if row and str(row[1] or "").strip() == FORM_STAGE_FILLING:
             return FORM_STAGE_FILLING
@@ -290,27 +313,22 @@ async def mark_form_started(chat_id: int, user_id: int) -> str:
     async with db() as cur:
         await cur.execute(
             """
-            UPDATE chat_users
-            SET form_stage = CASE
-                    WHEN TRIM(COALESCE(filled_form_text, '')) <> '' THEN 'saved'
+            INSERT INTO chat_users (chat_id, user_id, form_stage, form_started_at)
+            VALUES (?, ?, 'filling', ?)
+            ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                form_stage = CASE
+                    WHEN TRIM(COALESCE(chat_users.filled_form_text, '')) <> ''
+                         OR chat_users.form_stage = 'saved'
+                    THEN 'saved'
                     ELSE 'filling'
                 END,
                 form_started_at = CASE
-                    WHEN form_started_at > 0 THEN form_started_at ELSE ?
+                    WHEN chat_users.form_started_at > 0
+                    THEN chat_users.form_started_at ELSE excluded.form_started_at
                 END
-            WHERE chat_id = ? AND user_id = ?
             """,
-            (now, int(chat_id), int(user_id)),
+            (int(chat_id), int(user_id), now),
         )
-        if cur.rowcount == 0:
-            await cur.execute(
-                """
-                INSERT INTO chat_users (
-                    chat_id, user_id, form_stage, form_started_at
-                ) VALUES (?, ?, 'filling', ?)
-                """,
-                (int(chat_id), int(user_id), now),
-            )
     return await get_form_stage(chat_id, user_id)
 
 
@@ -320,11 +338,13 @@ async def mark_form_saved(chat_id: int, user_id: int) -> None:
     async with db() as cur:
         await cur.execute(
             """
-            UPDATE chat_users
-            SET form_stage = 'saved', form_saved_at = ?
-            WHERE chat_id = ? AND user_id = ?
+            INSERT INTO chat_users (chat_id, user_id, form_stage, form_saved_at)
+            VALUES (?, ?, 'saved', ?)
+            ON CONFLICT(chat_id, user_id) DO UPDATE SET
+                form_stage = 'saved',
+                form_saved_at = excluded.form_saved_at
             """,
-            (now, int(chat_id), int(user_id)),
+            (int(chat_id), int(user_id), now),
         )
 
 
@@ -401,15 +421,10 @@ async def replace_warning(
             _SEEN_MEDIA_GROUPS[media_key] = now
             _cleanup_media_groups(now)
 
+        # Сначала отправляем новую карточку. Старую удаляем только после
+        # успешной доставки — битая картинка или временная ошибка Telegram
+        # больше не оставляет пользователя вообще без предупреждения.
         old_message_id = await _get_warning_message_id(*key)
-        if old_message_id:
-            try:
-                await bot.delete_message(key[0], old_message_id)
-            except Exception:
-                pass
-            finally:
-                await _forget_warning(*key)
-
         try:
             sent = await sender()
         except Exception:
@@ -417,8 +432,21 @@ async def replace_warning(
                 _SEEN_MEDIA_GROUPS.pop(media_key, None)
             raise
 
-        if sent is not None and getattr(sent, "message_id", None) is not None:
-            await _save_warning_message_id(key[0], key[1], int(sent.message_id))
+        new_message_id = getattr(sent, "message_id", None) if sent is not None else None
+        if new_message_id is None:
+            if media_key is not None:
+                _SEEN_MEDIA_GROUPS.pop(media_key, None)
+            return None
+
+        await _save_warning_message_id(key[0], key[1], int(new_message_id))
+
+        if old_message_id and int(old_message_id) != int(new_message_id):
+            try:
+                await bot.delete_message(key[0], int(old_message_id))
+            except Exception:
+                # Новое сообщение уже доставлено; невозможность удалить старое
+                # не должна откатывать состояние.
+                pass
         return sent
 
 

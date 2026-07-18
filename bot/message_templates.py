@@ -4,10 +4,10 @@ import os
 import time
 from typing import Any
 
-from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.database import db
-from bot.message_queue import bot_send_message, bot_send_photo_to_chat, bot_send_animation_to_chat
+from bot.notification_delivery import send_notification_card
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 MEDIA_DIR = os.path.join(BASE_DIR, "bot", "images", "message_media")
@@ -143,28 +143,16 @@ async def send_configured_message(
     *,
     message_thread_id: int | None = None,
 ) -> Any:
-    """Отправляет фото/GIF с подписью либо обычный текст с одинаковыми опциями."""
+    """Надёжно отправляет настроенную карточку; медиа не отменяет текст."""
     keyboard = build_inline_keyboard(template)
-    kwargs: dict[str, Any] = {
-        "parse_mode": "HTML",
-        "reply_markup": keyboard,
-        "disable_notification": bool(template.get("silent")),
-        "protect_content": bool(template.get("protect_content")),
-    }
-    if message_thread_id is not None:
-        kwargs["message_thread_id"] = int(message_thread_id)
-
-    media_path = str(template.get("media_path") or "").strip()
-    full_path = os.path.join(BASE_DIR, "bot", "images", media_path) if media_path else ""
-    if full_path and os.path.isfile(full_path):
-        extension = os.path.splitext(full_path)[1].lower()
-        if extension == ".gif":
-            return await bot_send_animation_to_chat(
-                bot, chat_id, FSInputFile(full_path), wait=True, caption=text, **kwargs
-            )
-        return await bot_send_photo_to_chat(
-            bot, chat_id, FSInputFile(full_path), wait=True, caption=text, **kwargs
-        )
-
-    kwargs["disable_web_page_preview"] = bool(template.get("disable_preview", True))
-    return await bot_send_message(bot, chat_id, text, wait=True, **kwargs)
+    return await send_notification_card(
+        bot,
+        chat_id=int(chat_id),
+        text=text,
+        image_path=str(template.get("media_path") or "").strip(),
+        reply_markup=keyboard,
+        message_thread_id=message_thread_id,
+        disable_notification=bool(template.get("silent")),
+        protect_content=bool(template.get("protect_content")),
+        context=f"message_template:{template.get('template_key', 'unknown')}",
+    )

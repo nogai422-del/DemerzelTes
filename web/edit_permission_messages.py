@@ -1,16 +1,14 @@
 # Редактирование сообщений ограничений и медиа для предупреждений модерации.
 
-import os
 import re
-import uuid
 import hmac
 import secrets
 from flask import Blueprint, render_template, request, redirect, session
 from bot.database import db
 from bot.donations import ensure_donation_schema
 from bot.utils import normalize_telegram_button_url
+from bot.notification_delivery import notification_upload_dir, store_notification_upload
 from bot.warning_state import (
-    FORM_FILLING_PREFIX,
     ONBOARDING_PERMISSION_TYPE,
     base_permission_type,
     ensure_warning_schema,
@@ -19,14 +17,9 @@ from bot.warning_state import (
 
 edit_permission_bp = Blueprint("edit_permission", __name__)
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-UPLOAD_DIR = os.path.join(BASE_DIR, "bot/images/permission_images")
-DONATION_UPLOAD_DIR = os.path.join(BASE_DIR, "bot/images/donation_images")
+UPLOAD_DIR = str(notification_upload_dir("permission_images"))
+DONATION_UPLOAD_DIR = str(notification_upload_dir("donation_images"))
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(DONATION_UPLOAD_DIR, exist_ok=True)
-
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 
 
 # Преобразует данные в нужный формат.
@@ -76,11 +69,14 @@ async def _save_reaction_denied_template() -> None:
 
         upload = request.files.get(f"{prefix}[upload]")
         if upload and upload.filename:
-            extension = upload.filename.rsplit(".", 1)[-1].lower()
-            if extension in ALLOWED_EXTENSIONS:
-                filename = f"donation_{uuid.uuid4().hex}.{extension}"
-                upload.save(os.path.join(DONATION_UPLOAD_DIR, filename))
-                image_path = f"donation_images/{filename}"
+            filename = store_notification_upload(
+                upload.stream,
+                upload.filename,
+                DONATION_UPLOAD_DIR,
+                prefix="donation",
+                preserve_animation=True,
+            )
+            image_path = f"donation_images/{filename}"
 
         await cur.execute(
             """
@@ -175,41 +171,58 @@ async def edit_permission_messages():
             media_rows.setdefault(media_type, {})
             media_rows[media_type][field] = request.form.get(key)
 
-        async with db() as cur:
-            for media_type, row in media_rows.items():
-                message = row.get("message", "")
-                image_path = row.get("image_path", "")
-                button_text = row.get("button_text", "")
-                button_url = normalize_telegram_button_url(row.get("button_url", ""))
+        try:
+            async with db() as cur:
+                for media_type, row in media_rows.items():
+                    message = row.get("message", "")
+                    button_text = row.get("button_text", "")
+                    button_url = normalize_telegram_button_url(row.get("button_url", ""))
 
-                file = request.files.get(f"media[{media_type}][upload]")
+                    # Не доверяем hidden-полю браузера: сохраняем фактический путь
+                    # из БД, пока администратор явно не удалит или не заменит файл.
+                    await cur.execute(
+                        "SELECT image_path FROM permission_types WHERE media_type = ?",
+                        (media_type,),
+                    )
+                    current = await cur.fetchone()
+                    image_path = str(current[0] or "") if current else ""
 
-                if base_permission_type(media_type) != "emoji" and file and file.filename:
-                    ext = file.filename.rsplit(".", 1)[-1].lower()
-                    if ext in ALLOWED_EXTENSIONS:
-                        new_name = f"img_{uuid.uuid4().hex}.{ext}"
-                        full_path = os.path.join(UPLOAD_DIR, new_name)
-                        file.save(full_path)
+                    if row.get("remove_image") == "1":
+                        image_path = ""
+
+                    file = request.files.get(f"media[{media_type}][upload]")
+                    if file and file.filename:
+                        new_name = store_notification_upload(
+                            file.stream,
+                            file.filename,
+                            UPLOAD_DIR,
+                            prefix="permission",
+                            preserve_animation=True,
+                        )
                         image_path = f"permission_images/{new_name}"
 
-                message = convert_user_tag(message)
+                    message = convert_user_tag(message)
 
-                await cur.execute("""
-                    UPDATE permission_types SET
-                        message     = ?,
-                        image_path  = ?,
-                        button_text = ?,
-                        button_url  = ?
-                    WHERE media_type = ?
-                """, (
-                    message,
-                    image_path,
-                    button_text,
-                    button_url,
-                    media_type
-                ))
+                    await cur.execute("""
+                        UPDATE permission_types SET
+                            message     = ?,
+                            image_path  = ?,
+                            button_text = ?,
+                            button_url  = ?
+                        WHERE media_type = ?
+                    """, (
+                        message,
+                        image_path,
+                        button_text,
+                        button_url,
+                        media_type
+                    ))
 
-        await _save_reaction_denied_template()
+            await _save_reaction_denied_template()
+        except ValueError as exc:
+            print(f"Ошибка изображения оповещения: {exc}")
+            return redirect("/edit_permission_messages?image_error=1")
+
         return redirect("/edit_permission_messages?saved=1")
 
     async with db() as cur:
@@ -235,7 +248,7 @@ async def edit_permission_messages():
             "image_path": r[3],
             "button_text": r[4],
             "button_url": r[5],
-            "allow_image": base_permission_type(media_type) != "emoji",
+            "allow_image": True,
         }
         if media_type == ONBOARDING_PERMISSION_TYPE:
             onboarding = item
@@ -257,5 +270,6 @@ async def edit_permission_messages():
         reaction_denied=reaction_denied,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),
+        image_error=request.args.get("image_error"),
         csrf_token=session["csrf_token"],
     )

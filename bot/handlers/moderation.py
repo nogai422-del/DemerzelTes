@@ -1,7 +1,7 @@
 # Модерация контента и права пользователей: фильтры, лимиты и предупреждения.
 
 from aiogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
+    Message, InlineKeyboardMarkup, InlineKeyboardButton
 )
 from aiogram.filters import Command
 from aiogram import Router, Bot
@@ -21,16 +21,16 @@ from bot.donations import (
     revoke_all_donation_grants,
 )
 from bot.message_queue import (
-    bot_answer, bot_send_animation_to_chat, bot_send_message, bot_send_photo_to_chat
+    bot_answer, bot_send_message
 )
 from bot.message_templates import get_message_template, render_template, send_configured_message
+from bot.notification_delivery import send_notification_card
 from bot.donation_revoke_settings import get_revoke_settings, log_revoke_action, render_revoke_text
 from bot.handlers.badword_detector import detect_badword_details
 from bot.handlers.emoji_detector import message_emoji_count
 from bot.utils import (
-    normalize_telegram_button_url, resolve_bot_image_path,
+    normalize_telegram_button_url,
     save_timed_message, get_full_name, safe_delete, is_command_admin,
-    telegram_html_to_plain_text,
 )
 from bot.warning_state import (
     FORM_STAGE_FILLING,
@@ -46,7 +46,6 @@ from bot.warning_state import (
 from env_config import require_int_env
 
 import asyncio
-import os
 import re
 import time
 
@@ -430,96 +429,15 @@ async def send_restriction_warning_to_chat(
         else None
     )
 
-    thread_kwargs = {}
-    if message_thread_id is not None:
-        thread_kwargs["message_thread_id"] = int(message_thread_id)
-
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    full_image_path = (
-        resolve_bot_image_path(os.path.join(base_dir, "bot", "images", image_path))
-        if image_path
-        else ""
-    )
-
-    async def _send_html_text(reply_markup=keyboard):
-        return await bot_send_message(
-            bot,
-            int(chat_id),
-            caption,
-            wait=True,
-            parse_mode="HTML",
-            reply_markup=reply_markup,
-            disable_web_page_preview=True,
-            **thread_kwargs,
-        )
-
     async def _sender():
-        # 1. Полная карточка с изображением.
-        if full_image_path and os.path.isfile(full_image_path):
-            media_kwargs = dict(
-                wait=True,
-                caption=caption,
-                parse_mode="HTML",
-                reply_markup=keyboard,
-                **thread_kwargs,
-            )
-            try:
-                if os.path.splitext(full_image_path)[1].lower() == ".gif":
-                    sent_media = await bot_send_animation_to_chat(
-                        bot, int(chat_id), FSInputFile(full_image_path), **media_kwargs
-                    )
-                else:
-                    sent_media = await bot_send_photo_to_chat(
-                        bot, int(chat_id), FSInputFile(full_image_path), **media_kwargs
-                    )
-                if sent_media is not None:
-                    return sent_media
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                print(
-                    "Не удалось отправить изображение предупреждения; "
-                    f"повторяем текстом type={effective_type}: {exc}"
-                )
-
-        # 2. HTML + кнопка.
-        try:
-            sent_text = await _send_html_text()
-            if sent_text is not None:
-                return sent_text
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(
-                "Не удалось отправить HTML-предупреждение; "
-                f"повторяем без кнопки type={effective_type}: {exc}"
-            )
-
-        # 3. HTML без кнопки — защищает от BUTTON_URL_INVALID.
-        if keyboard is not None:
-            try:
-                sent_text = await _send_html_text(reply_markup=None)
-                if sent_text is not None:
-                    return sent_text
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                print(
-                    "Не удалось отправить HTML-предупреждение без кнопки; "
-                    f"повторяем plain text type={effective_type}: {exc}"
-                )
-
-        # 4. Plain text без форматирования — защищает от malformed HTML.
-        plain_text = telegram_html_to_plain_text(caption) or (
-            f"{full_name}, это действие сейчас недоступно. Сообщение удалено."
-        )
-        return await bot_send_message(
+        return await send_notification_card(
             bot,
-            int(chat_id),
-            plain_text,
-            wait=True,
-            disable_web_page_preview=True,
-            **thread_kwargs,
+            chat_id=int(chat_id),
+            text=caption,
+            image_path=image_path,
+            reply_markup=keyboard,
+            message_thread_id=message_thread_id,
+            context=f"restriction:{effective_type}:stage={form_stage or 'forced'}",
         )
 
     sent = await replace_warning(

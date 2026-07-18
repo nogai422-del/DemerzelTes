@@ -7,7 +7,6 @@ import time
 from typing import Any
 
 from aiogram.types import (
-    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     ReplyParameters,
@@ -15,9 +14,10 @@ from aiogram.types import (
 from aiogram.utils.formatting import html_decoration as hd
 
 from bot.database import db
-from bot.message_queue import bot_send_message, bot_send_photo_to_chat, bot_send_animation_to_chat
+from bot.message_queue import bot_send_message
 from bot.warning_state import replace_warning
-from bot.utils import normalize_telegram_button_url, resolve_bot_image_path, telegram_html_to_plain_text
+from bot.notification_delivery import resolve_notification_source_path, send_notification_card
+from bot.utils import normalize_telegram_button_url
 
 DAY_SECONDS = 86400
 DEFAULT_LONG_PACKAGE_MIN_DAYS = 28
@@ -296,6 +296,24 @@ async def ensure_donation_schema() -> None:
                 FROM emoji_permissions
                 """
             )
+
+        await cur.execute(
+            "SELECT category, event_type, image_path "
+            "FROM donation_notification_templates "
+            "WHERE TRIM(COALESCE(image_path,'')) <> ''"
+        )
+        stale_templates = []
+        for category, event_type, image_path in await cur.fetchall():
+            source = resolve_notification_source_path(str(image_path or ""))
+            if source is None or not source.is_file():
+                stale_templates.append((str(category), str(event_type)))
+        if stale_templates:
+            await cur.executemany(
+                """UPDATE donation_notification_templates SET image_path=''
+                   WHERE category=? AND event_type=?""",
+                stale_templates,
+            )
+            print(f"Удалены мёртвые ссылки картинок донат-уведомлений: {len(stale_templates)}")
 
     _SCHEMA_READY = True
 
@@ -887,7 +905,6 @@ async def _send_notification(
     keyboard = _build_keyboard(template)
 
     image_path = (template.get("image_path") or "").strip()
-    full_image_path = resolve_bot_image_path(os.path.join(BASE_DIR, "bot", "images", image_path)) if image_path else ""
 
     reply_kwargs: dict[str, Any] = {}
     if reply_to_message_id is not None:
@@ -895,85 +912,16 @@ async def _send_notification(
             message_id=int(reply_to_message_id),
             allow_sending_without_reply=True,
         )
-    if message_thread_id is not None:
-        reply_kwargs["message_thread_id"] = int(message_thread_id)
 
-    async def _send_html(reply_markup=keyboard):
-        return await bot_send_message(
-            bot,
-            chat_id,
-            text,
-            wait=True,
-            parse_mode="HTML",
-            reply_markup=reply_markup,
-            disable_web_page_preview=True,
-            **reply_kwargs,
-        )
-
-    # 1. Полная карточка с изображением.
-    if full_image_path and os.path.isfile(full_image_path):
-        media_kwargs = dict(
-            wait=True,
-            caption=text,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            **reply_kwargs,
-        )
-        try:
-            if os.path.splitext(full_image_path)[1].lower() == ".gif":
-                sent = await bot_send_animation_to_chat(
-                    bot, chat_id, FSInputFile(full_image_path), **media_kwargs
-                )
-            else:
-                sent = await bot_send_photo_to_chat(
-                    bot, chat_id, FSInputFile(full_image_path), **media_kwargs
-                )
-            if sent is not None:
-                return sent
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(
-                "Не удалось отправить изображение донат-уведомления; "
-                f"повторяем текстом {category}/{event_type}: {exc}"
-            )
-
-    # 2. HTML с нормализованными кнопками.
-    try:
-        sent = await _send_html()
-        if sent is not None:
-            return sent
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        print(
-            "Не удалось отправить HTML донат-уведомления; "
-            f"повторяем без кнопок {category}/{event_type}: {exc}"
-        )
-
-    # 3. HTML без кнопок: защищает от BUTTON_URL_INVALID.
-    if keyboard is not None:
-        try:
-            sent = await _send_html(reply_markup=None)
-            if sent is not None:
-                return sent
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            print(
-                "Не удалось отправить HTML без кнопок; "
-                f"повторяем plain text {category}/{event_type}: {exc}"
-            )
-
-    # 4. Plain text без HTML и кнопок.
-    plain_text = telegram_html_to_plain_text(text) or f"Уведомление для пользователя {user_id}."
-    sent = await bot_send_message(
+    sent = await send_notification_card(
         bot,
-        chat_id,
-        plain_text,
-        wait=True,
-        disable_web_page_preview=True,
-        **reply_kwargs,
+        chat_id=chat_id,
+        text=text,
+        image_path=image_path,
+        reply_markup=keyboard,
+        message_thread_id=message_thread_id,
+        reply_parameters=reply_kwargs.get("reply_parameters"),
+        context=f"donation:{category}:{event_type}",
     )
     if sent is None:
         raise RuntimeError(f"Не удалось отправить донат-уведомление в chat_id={chat_id}")

@@ -1,9 +1,7 @@
 # Настройка уведомлений о скором окончании и истечении донат-пакетов.
 
 import hmac
-import os
 import secrets
-import uuid
 
 from flask import Blueprint, redirect, render_template, request, session
 
@@ -21,16 +19,14 @@ from bot.donations import (
     set_usage_limits,
 )
 from bot.utils import normalize_telegram_button_url
+from bot.notification_delivery import notification_upload_dir, store_notification_upload
 
 edit_donation_notifications_bp = Blueprint(
     "edit_donation_notifications", __name__
 )
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-UPLOAD_DIR = os.path.join(BASE_DIR, "bot", "images", "donation_images")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+UPLOAD_DIR = str(notification_upload_dir("donation_images"))
 
-ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif"}
 
 
 @edit_donation_notifications_bp.route(
@@ -113,72 +109,80 @@ async def edit_donation_notifications():
             ),
         )
 
-        async with db() as cur:
-            for category in CATEGORY_TITLES:
-                for event_type in CATEGORY_EVENT_TYPES[category]:
-                    prefix = f"template[{category}][{event_type}]"
-                    message = request.form.get(f"{prefix}[message]", "")
-                    button1_text = request.form.get(f"{prefix}[button1_text]", "")
-                    button1_url = normalize_telegram_button_url(
-                        request.form.get(f"{prefix}[button1_url]", "")
-                    )
-                    button2_text = request.form.get(f"{prefix}[button2_text]", "")
-                    button2_url = normalize_telegram_button_url(
-                        request.form.get(f"{prefix}[button2_url]", "")
-                    )
+        try:
+            async with db() as cur:
+                for category in CATEGORY_TITLES:
+                    for event_type in CATEGORY_EVENT_TYPES[category]:
+                        prefix = f"template[{category}][{event_type}]"
+                        message = request.form.get(f"{prefix}[message]", "")
+                        button1_text = request.form.get(f"{prefix}[button1_text]", "")
+                        button1_url = normalize_telegram_button_url(
+                            request.form.get(f"{prefix}[button1_url]", "")
+                        )
+                        button2_text = request.form.get(f"{prefix}[button2_text]", "")
+                        button2_url = normalize_telegram_button_url(
+                            request.form.get(f"{prefix}[button2_url]", "")
+                        )
 
-                    await cur.execute(
-                        """
-                        SELECT image_path
-                        FROM donation_notification_templates
-                        WHERE category = ? AND event_type = ?
-                        """,
-                        (category, event_type),
-                    )
-                    row = await cur.fetchone()
-                    image_path = (row[0] if row else "") or ""
+                        await cur.execute(
+                            """
+                            SELECT image_path
+                            FROM donation_notification_templates
+                            WHERE category = ? AND event_type = ?
+                            """,
+                            (category, event_type),
+                        )
+                        row = await cur.fetchone()
+                        image_path = (row[0] if row else "") or ""
 
-                    if request.form.get(f"{prefix}[remove_image]") == "1":
-                        image_path = ""
+                        if request.form.get(f"{prefix}[remove_image]") == "1":
+                            image_path = ""
 
-                    upload = request.files.get(f"{prefix}[upload]")
-                    if upload and upload.filename:
-                        extension = upload.filename.rsplit(".", 1)[-1].lower()
-                        if extension in ALLOWED_EXTENSIONS:
-                            filename = f"donation_{uuid.uuid4().hex}.{extension}"
-                            upload.save(os.path.join(UPLOAD_DIR, filename))
+                        upload = request.files.get(f"{prefix}[upload]")
+                        if upload and upload.filename:
+                            filename = store_notification_upload(
+                                upload.stream,
+                                upload.filename,
+                                UPLOAD_DIR,
+                                prefix="donation",
+                                preserve_animation=True,
+                            )
                             image_path = f"donation_images/{filename}"
 
-                    title = (
-                        f"{CATEGORY_TITLES[category]} — {EVENT_TITLES[event_type]}"
-                    )
-                    await cur.execute(
-                        """
-                        INSERT INTO donation_notification_templates (
-                            category, event_type, title, message, image_path,
-                            button1_text, button1_url, button2_text, button2_url
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(category, event_type) DO UPDATE SET
-                            title = excluded.title,
-                            message = excluded.message,
-                            image_path = excluded.image_path,
-                            button1_text = excluded.button1_text,
-                            button1_url = excluded.button1_url,
-                            button2_text = excluded.button2_text,
-                            button2_url = excluded.button2_url
-                        """,
-                        (
-                            category,
-                            event_type,
-                            title,
-                            message,
-                            image_path,
-                            button1_text,
-                            button1_url,
-                            button2_text,
-                            button2_url,
-                        ),
-                    )
+                        title = (
+                            f"{CATEGORY_TITLES[category]} — {EVENT_TITLES[event_type]}"
+                        )
+                        await cur.execute(
+                            """
+                            INSERT INTO donation_notification_templates (
+                                category, event_type, title, message, image_path,
+                                button1_text, button1_url, button2_text, button2_url
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(category, event_type) DO UPDATE SET
+                                title = excluded.title,
+                                message = excluded.message,
+                                image_path = excluded.image_path,
+                                button1_text = excluded.button1_text,
+                                button1_url = excluded.button1_url,
+                                button2_text = excluded.button2_text,
+                                button2_url = excluded.button2_url
+                            """,
+                            (
+                                category,
+                                event_type,
+                                title,
+                                message,
+                                image_path,
+                                button1_text,
+                                button1_url,
+                                button2_text,
+                                button2_url,
+                            ),
+                        )
+
+        except ValueError as exc:
+            print(f"Ошибка изображения донат-уведомления: {exc}")
+            return redirect("/edit_donation_notifications?image_error=1")
 
         return redirect("/edit_donation_notifications?saved=1")
 
@@ -234,5 +238,6 @@ async def edit_donation_notifications():
         expiry_settings=expiry_settings,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),
+        image_error=request.args.get("image_error"),
         csrf_token=session["csrf_token"],
     )

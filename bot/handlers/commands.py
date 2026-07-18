@@ -28,27 +28,17 @@ COSMOS_ID = require_int_env("COSMOS_ID")
 
 # Сохраняет текст анкеты пользователя в chat_users.
 async def _save_filled_form(cur, chat_id: int, user_id: int, filled_form_text: str):
+    """Атомарно сохраняет анкету и этап, не создавая дубликаты пользователя."""
     await cur.execute(
-        "SELECT 1 FROM chat_users WHERE chat_id=? AND user_id=? LIMIT 1",
-        (chat_id, user_id),
+        """INSERT INTO chat_users (
+               chat_id, user_id, filled_form_text, form_stage, form_saved_at
+           ) VALUES (?, ?, ?, 'saved', CAST(strftime('%s','now') AS INTEGER))
+           ON CONFLICT(chat_id, user_id) DO UPDATE SET
+               filled_form_text=excluded.filled_form_text,
+               form_stage='saved',
+               form_saved_at=excluded.form_saved_at""",
+        (int(chat_id), int(user_id), filled_form_text),
     )
-    exists = await cur.fetchone()
-
-    if exists:
-        await cur.execute(
-            """UPDATE chat_users
-               SET filled_form_text=?, form_stage='saved',
-                   form_saved_at=CAST(strftime('%s','now') AS INTEGER)
-               WHERE chat_id=? AND user_id=?""",
-            (filled_form_text, chat_id, user_id),
-        )
-    else:
-        await cur.execute(
-            """INSERT INTO chat_users (
-                   chat_id, user_id, filled_form_text, form_stage, form_saved_at
-               ) VALUES (?, ?, ?, 'saved', CAST(strftime('%s','now') AS INTEGER))""",
-            (chat_id, user_id, filled_form_text),
-        )
 
 
 # Команда /save: сохраняет анкету пользователя из reply-сообщения.

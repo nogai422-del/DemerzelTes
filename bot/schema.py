@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS chat_users (
     rank_name_cache TEXT NOT NULL DEFAULT '',
     form_stage TEXT NOT NULL DEFAULT 'new',
     form_started_at INTEGER NOT NULL DEFAULT 0,
-    form_saved_at INTEGER NOT NULL DEFAULT 0
+    form_saved_at INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(chat_id, user_id)
 );
 
 CREATE TABLE IF NOT EXISTS form_text (content TEXT NOT NULL DEFAULT '');
@@ -134,6 +135,67 @@ def _migrate_permission_messages(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE permission_messages_legacy")
 
 
+def _migrate_chat_users(conn: sqlite3.Connection) -> None:
+    """Объединяет дубли пользователей и запрещает их повторное появление."""
+    duplicates = conn.execute(
+        """SELECT chat_id, user_id FROM chat_users
+           GROUP BY chat_id, user_id HAVING COUNT(*) > 1"""
+    ).fetchall()
+
+    for chat_id, user_id in duplicates:
+        rows = conn.execute(
+            """SELECT rowid, filled_form_text, messages, score, level,
+                      permission_level, can_view_forms, rank_name_cache,
+                      form_stage, form_started_at, form_saved_at
+               FROM chat_users
+               WHERE chat_id=? AND user_id=?
+               ORDER BY rowid DESC""",
+            (chat_id, user_id),
+        ).fetchall()
+        if not rows:
+            continue
+        keep_rowid = int(rows[0][0])
+        filled = next((str(r[1]) for r in rows if str(r[1] or "").strip()), "")
+        rank = next((str(r[7]) for r in rows if str(r[7] or "").strip()), "")
+        stages = {str(r[8] or "new") for r in rows}
+        if filled or "saved" in stages:
+            stage = "saved"
+        elif "filling" in stages:
+            stage = "filling"
+        else:
+            stage = "new"
+        values = (
+            filled,
+            max(int(r[2] or 0) for r in rows),
+            max(int(r[3] or 0) for r in rows),
+            max(int(r[4] or 0) for r in rows),
+            max(int(r[5] or 0) for r in rows),
+            max(int(r[6] or 0) for r in rows),
+            rank,
+            stage,
+            max(int(r[9] or 0) for r in rows),
+            max(int(r[10] or 0) for r in rows),
+            keep_rowid,
+        )
+        conn.execute(
+            """UPDATE chat_users SET
+                   filled_form_text=?, messages=?, score=?, level=?,
+                   permission_level=?, can_view_forms=?, rank_name_cache=?,
+                   form_stage=?, form_started_at=?, form_saved_at=?
+               WHERE rowid=?""",
+            values,
+        )
+        conn.execute(
+            "DELETE FROM chat_users WHERE chat_id=? AND user_id=? AND rowid<>?",
+            (chat_id, user_id, keep_rowid),
+        )
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_chat_users_chat_user "
+        "ON chat_users(chat_id,user_id)"
+    )
+
+
 def _seed_defaults(conn: sqlite3.Connection, target: Path) -> None:
     seed = Path(__file__).resolve().parents[1] / "database" / "database.db"
     if not seed.exists() or seed.resolve() == target.resolve():
@@ -193,6 +255,7 @@ def ensure_database_ready(path: str, *, force: bool = False) -> None:
                 for name, definition in columns.items():
                     if name not in existing:
                         conn.execute(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {definition}')
+            _migrate_chat_users(conn)
             _seed_defaults(conn, target)
             # Старые анкеты автоматически считаются сохранёнными. Записи с /bv
             # без сохранённого текста переводятся в промежуточный этап заполнения.
