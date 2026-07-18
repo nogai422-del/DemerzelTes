@@ -8,6 +8,7 @@ import secrets
 from flask import Blueprint, render_template, request, redirect, session
 from bot.database import db
 from bot.donations import ensure_donation_schema
+from bot.utils import normalize_telegram_button_url
 from bot.warning_state import (
     FORM_FILLING_PREFIX,
     ONBOARDING_PERMISSION_TYPE,
@@ -51,9 +52,13 @@ async def _save_reaction_denied_template() -> None:
     prefix = "reaction_denied"
     message = request.form.get(f"{prefix}[message]", "")
     button1_text = request.form.get(f"{prefix}[button1_text]", "")
-    button1_url = request.form.get(f"{prefix}[button1_url]", "")
+    button1_url = normalize_telegram_button_url(
+        request.form.get(f"{prefix}[button1_url]", "")
+    )
     button2_text = request.form.get(f"{prefix}[button2_text]", "")
-    button2_url = request.form.get(f"{prefix}[button2_url]", "")
+    button2_url = normalize_telegram_button_url(
+        request.form.get(f"{prefix}[button2_url]", "")
+    )
 
     async with db() as cur:
         await cur.execute(
@@ -175,7 +180,7 @@ async def edit_permission_messages():
                 message = row.get("message", "")
                 image_path = row.get("image_path", "")
                 button_text = row.get("button_text", "")
-                button_url = row.get("button_url", "")
+                button_url = normalize_telegram_button_url(row.get("button_url", ""))
 
                 file = request.files.get(f"media[{media_type}][upload]")
 
@@ -236,11 +241,10 @@ async def edit_permission_messages():
             onboarding = item
         elif is_form_filling_permission_type(media_type):
             filling_list.append(item)
-        elif media_type != "sticker":
+        else:
             regular_list.append(item)
 
-    # Стикеры показываются на промежуточном этапе, но старый общий шаблон
-    # после /save для них не используется. Реакции после /save настраиваются отдельно.
+    # Реакции после /save настраиваются отдельно через донат-шаблон.
     filling_list.sort(key=lambda item: str(item["title"]).casefold())
     regular_list.sort(key=lambda item: str(item["title"]).casefold())
     reaction_denied = await _load_reaction_denied_template()

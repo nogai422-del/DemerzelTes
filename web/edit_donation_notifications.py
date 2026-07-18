@@ -20,6 +20,7 @@ from bot.donations import (
     set_expiry_notification_settings,
     set_usage_limits,
 )
+from bot.utils import normalize_telegram_button_url
 
 edit_donation_notifications_bp = Blueprint(
     "edit_donation_notifications", __name__
@@ -118,9 +119,13 @@ async def edit_donation_notifications():
                     prefix = f"template[{category}][{event_type}]"
                     message = request.form.get(f"{prefix}[message]", "")
                     button1_text = request.form.get(f"{prefix}[button1_text]", "")
-                    button1_url = request.form.get(f"{prefix}[button1_url]", "")
+                    button1_url = normalize_telegram_button_url(
+                        request.form.get(f"{prefix}[button1_url]", "")
+                    )
                     button2_text = request.form.get(f"{prefix}[button2_text]", "")
-                    button2_url = request.form.get(f"{prefix}[button2_url]", "")
+                    button2_url = normalize_telegram_button_url(
+                        request.form.get(f"{prefix}[button2_url]", "")
+                    )
 
                     await cur.execute(
                         """

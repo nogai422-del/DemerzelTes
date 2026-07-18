@@ -27,6 +27,70 @@ ONBOARDING_MESSAGE = (
 FORM_FILLING_PREFIX = "form_filling:"
 FORM_FILLING_STAGE_TITLE = "Во время заполнения анкеты"
 
+POST_SAVE_GENERIC_PERMISSION_TYPE = "other_media"
+
+_POST_SAVE_DEFAULTS = {
+    "photo": (
+        "Фотографии",
+        "{user}, фотографии доступны с уровнем Медиа 1 или Медиа 2.",
+    ),
+    "video": (
+        "Видео",
+        "{user}, видео доступны с уровнем Медиа 1 или Медиа 2.",
+    ),
+    "animation": (
+        "GIF / Анимации",
+        "{user}, GIF и анимации доступны с уровнем Медиа 1 или Медиа 2.",
+    ),
+    "document": (
+        "Файлы",
+        "{user}, файлы и документы доступны только с уровнем Медиа 2.",
+    ),
+    "audio": (
+        "Аудио",
+        "{user}, музыка и аудиофайлы доступны только с уровнем Медиа 2.",
+    ),
+    "voice": (
+        "Голосовые сообщения",
+        "{user}, для голосовых сообщений нужен отдельный активный донат.",
+    ),
+    "video_note": (
+        "Видео-сообщения",
+        "{user}, для кружков нужен отдельный активный донат.",
+    ),
+    "emoji": (
+        "Эмодзи",
+        "{user}, для смайликов нужен отдельный активный донат.",
+    ),
+    "badword": (
+        "Мат",
+        "{user}, ругательства и запрещённые слова доступны только с уровнем Медиа 2.",
+    ),
+    "link": (
+        "Ссылки",
+        "{user}, ссылки доступны только с уровнем Медиа 2.",
+    ),
+    "sticker": (
+        "Стикеры",
+        "{user}, стикеры в этом чате отключены. Сообщение удалено.",
+    ),
+    POST_SAVE_GENERIC_PERMISSION_TYPE: (
+        "Другой тип вложения",
+        "{user}, этот тип вложения недоступен на вашем текущем медиа-уровне. Сообщение удалено.",
+    ),
+    "view": (
+        "Просмотр анкет",
+        "{user}, для просмотра чужих анкет требуется отдельное разрешение.",
+    ),
+}
+
+
+def post_save_permission_type(permission_type: str) -> str:
+    """Возвращает существующую категорию обычного уведомления после /save."""
+    value = str(permission_type or "").strip()
+    return value if value in _POST_SAVE_DEFAULTS else POST_SAVE_GENERIC_PERMISSION_TYPE
+
+
 _FORM_FILLING_DEFAULTS = {
     "badword": (
         "Мат в анкете",
@@ -158,6 +222,18 @@ async def ensure_warning_schema() -> None:
             """,
             (ONBOARDING_PERMISSION_TYPE, ONBOARDING_TITLE, ONBOARDING_MESSAGE),
         )
+
+        # Полный набор обычных шаблонов после /save. Существующие тексты
+        # администратора не перезаписываются.
+        for permission_type, (title, message) in _POST_SAVE_DEFAULTS.items():
+            await cur.execute(
+                """
+                INSERT OR IGNORE INTO permission_types (
+                    media_type, title, message, image_path, button_text, button_url
+                ) VALUES (?, ?, ?, '', '', '')
+                """,
+                (permission_type, title, message),
+            )
 
         # У каждого ограничения есть отдельный шаблон для промежутка /bv → /save.
         # INSERT OR IGNORE сохраняет любые тексты, уже настроенные администратором.

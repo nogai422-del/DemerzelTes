@@ -166,8 +166,22 @@ def ensure_database_ready(path: str, *, force: bool = False) -> None:
             return
         target = Path(absolute)
         target.parent.mkdir(parents=True, exist_ok=True)
-        if not target.exists():
+
+        # При первом запуске на новом volume переносим не только настройки,
+        # а полную встроенную рабочую базу: участников, донаты и статистику.
+        # Существующий непустой файл никогда автоматически не перезаписываем.
+        seed = Path(__file__).resolve().parents[1] / "database" / "database.db"
+        target_is_empty = not target.exists() or target.stat().st_size == 0
+        if (
+            target_is_empty
+            and seed.exists()
+            and seed.stat().st_size > 0
+            and seed.resolve() != target.resolve()
+        ):
+            shutil.copy2(seed, target)
+        elif not target.exists():
             target.touch()
+
         conn = sqlite3.connect(absolute, timeout=30)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
@@ -200,6 +214,17 @@ def ensure_database_ready(path: str, *, force: bool = False) -> None:
                          WHERE b.chat_id=chat_users.chat_id
                            AND b.target_user_id=chat_users.user_id
                      )"""
+            )
+            # Свежие рабочие базы старых версий содержат участников только
+            # в chat_users. Заполняем новый каталог админ-панели Telegram ID
+            # и количеством сообщений, не перезаписывая данные из CSV.
+            conn.execute(
+                """INSERT OR IGNORE INTO admin_members(user_id, message_count, imported_at)
+                   SELECT user_id, MAX(COALESCE(messages, 0)),
+                          CAST(strftime('%s','now') AS INTEGER)
+                   FROM chat_users
+                   WHERE user_id > 0
+                   GROUP BY user_id"""
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_users_chat_user ON chat_users(chat_id,user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_chat_users_score ON chat_users(chat_id,score DESC)")

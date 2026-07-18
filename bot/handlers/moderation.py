@@ -21,23 +21,26 @@ from bot.donations import (
     revoke_all_donation_grants,
 )
 from bot.message_queue import (
-    bot_answer, bot_send_message, bot_send_photo_to_chat
+    bot_answer, bot_send_animation_to_chat, bot_send_message, bot_send_photo_to_chat
 )
 from bot.message_templates import get_message_template, render_template, send_configured_message
 from bot.donation_revoke_settings import get_revoke_settings, log_revoke_action, render_revoke_text
 from bot.handlers.badword_detector import detect_badword_details
 from bot.handlers.emoji_detector import message_emoji_count
 from bot.utils import (
-    resolve_bot_image_path,
-    save_timed_message, get_full_name, safe_delete, is_command_admin
+    normalize_telegram_button_url, resolve_bot_image_path,
+    save_timed_message, get_full_name, safe_delete, is_command_admin,
+    telegram_html_to_plain_text,
 )
 from bot.warning_state import (
     FORM_STAGE_FILLING,
     FORM_STAGE_NEW,
+    FORM_STAGE_SAVED,
     ONBOARDING_PERMISSION_TYPE,
     ensure_warning_schema,
     form_filling_permission_type,
     get_form_stage,
+    post_save_permission_type,
     replace_warning,
 )
 from env_config import require_int_env
@@ -362,40 +365,63 @@ async def send_restriction_warning_to_chat(
     message_thread_id: int | None = None,
     force_permission_type: bool = False,
 ) -> bool:
-    """
-    Отправляет одно актуальное предупреждение пользователю.
+    """Отправляет одно актуальное предупреждение без тихих удалений.
 
-    До /bv используется общий шаблон. Между /bv и /save используются
-    отдельные промежуточные шаблоны. После /save — обычные шаблоны.
+    До /bv используется общий шаблон, между /bv и /save — отдельный
+    промежуточный, после /save — обычный шаблон. Неизвестные типы Telegram
+    используют общий шаблон ``other_media``. Ошибка картинки, HTML или кнопки
+    не отменяет уведомление: бот повторяет отправку в упрощённом виде.
     """
     user_id = int(user.id)
-    effective_type = permission_type
+    effective_type = str(permission_type or "").strip()
     form_stage = None
-    if not force_permission_type and permission_type != "view":
+
+    if not force_permission_type and effective_type != "view":
         form_stage = await get_form_stage(chat_id, user_id)
         if form_stage == FORM_STAGE_NEW:
             effective_type = ONBOARDING_PERMISSION_TYPE
         elif form_stage == FORM_STAGE_FILLING:
-            effective_type = form_filling_permission_type(permission_type)
+            effective_type = form_filling_permission_type(effective_type)
+        elif form_stage == FORM_STAGE_SAVED:
+            effective_type = post_save_permission_type(effective_type)
+    elif effective_type != "view":
+        effective_type = post_save_permission_type(effective_type)
 
     settings = await get_permission_settings(effective_type)
     if not settings and form_stage == FORM_STAGE_FILLING:
-        # Защита для старых баз: даже если конкретный промежуточный шаблон
-        # не создался, пользователь получит понятное общее предупреждение.
+        # Защита для старой базы без промежуточных шаблонов.
         effective_type = ONBOARDING_PERMISSION_TYPE
         settings = await get_permission_settings(effective_type)
-    if not settings:
-        return False
+    if not settings and form_stage == FORM_STAGE_SAVED:
+        effective_type = post_save_permission_type("")
+        settings = await get_permission_settings(effective_type)
 
     full_name = await get_full_name(user)
-    user_link = f'<a href="tg://user?id={user_id}">{hd.quote(full_name)}</a>'
-    caption = settings["message"] or ""
+    safe_name = hd.quote(full_name)
+    user_link = f'<a href="tg://user?id={user_id}">{safe_name}</a>'
+
+    if settings:
+        caption = str(settings.get("message") or "")
+        button_text = str(settings.get("button_text") or "").strip()
+        button_url = normalize_telegram_button_url(settings.get("button_url"))
+        image_path = str(settings.get("image_path") or "").strip()
+    else:
+        # Последний встроенный fallback: сообщение не должно удаляться молча,
+        # даже если администратор случайно удалил строку шаблона из SQLite.
+        caption = (
+            "{user}, это действие недоступно на вашем текущем уровне. "
+            "Сообщение удалено."
+        )
+        button_text = ""
+        button_url = ""
+        image_path = ""
+
     caption = caption.replace("{user}", user_link)
     caption = caption.replace("{user_id}", str(user_id))
-    caption = caption.replace("{full_name}", hd.quote(full_name))
+    caption = caption.replace("{full_name}", safe_name)
+    if not caption.strip():
+        caption = f"{user_link}, это действие сейчас недоступно. Сообщение удалено."
 
-    button_text = (settings["button_text"] or "").strip()
-    button_url = (settings["button_url"] or "").strip()
     keyboard = (
         InlineKeyboardMarkup(
             inline_keyboard=[[InlineKeyboardButton(text=button_text, url=button_url)]]
@@ -404,35 +430,96 @@ async def send_restriction_warning_to_chat(
         else None
     )
 
-    send_kwargs = {
-        "parse_mode": "HTML",
-        "reply_markup": keyboard,
-    }
+    thread_kwargs = {}
     if message_thread_id is not None:
-        send_kwargs["message_thread_id"] = int(message_thread_id)
+        thread_kwargs["message_thread_id"] = int(message_thread_id)
 
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    image_path = (settings["image_path"] or "").strip()
-    full_image_path = resolve_bot_image_path(os.path.join(base_dir, "bot", "images", image_path)) if image_path else ""
+    full_image_path = (
+        resolve_bot_image_path(os.path.join(base_dir, "bot", "images", image_path))
+        if image_path
+        else ""
+    )
 
-    async def _sender():
-        if effective_type != "emoji" and full_image_path and os.path.isfile(full_image_path):
-            return await bot_send_photo_to_chat(
-                bot,
-                int(chat_id),
-                FSInputFile(full_image_path),
-                wait=True,
-                caption=caption,
-                **send_kwargs,
-            )
-
+    async def _send_html_text(reply_markup=keyboard):
         return await bot_send_message(
             bot,
             int(chat_id),
             caption,
             wait=True,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
             disable_web_page_preview=True,
-            **send_kwargs,
+            **thread_kwargs,
+        )
+
+    async def _sender():
+        # 1. Полная карточка с изображением.
+        if full_image_path and os.path.isfile(full_image_path):
+            media_kwargs = dict(
+                wait=True,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                **thread_kwargs,
+            )
+            try:
+                if os.path.splitext(full_image_path)[1].lower() == ".gif":
+                    sent_media = await bot_send_animation_to_chat(
+                        bot, int(chat_id), FSInputFile(full_image_path), **media_kwargs
+                    )
+                else:
+                    sent_media = await bot_send_photo_to_chat(
+                        bot, int(chat_id), FSInputFile(full_image_path), **media_kwargs
+                    )
+                if sent_media is not None:
+                    return sent_media
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(
+                    "Не удалось отправить изображение предупреждения; "
+                    f"повторяем текстом type={effective_type}: {exc}"
+                )
+
+        # 2. HTML + кнопка.
+        try:
+            sent_text = await _send_html_text()
+            if sent_text is not None:
+                return sent_text
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(
+                "Не удалось отправить HTML-предупреждение; "
+                f"повторяем без кнопки type={effective_type}: {exc}"
+            )
+
+        # 3. HTML без кнопки — защищает от BUTTON_URL_INVALID.
+        if keyboard is not None:
+            try:
+                sent_text = await _send_html_text(reply_markup=None)
+                if sent_text is not None:
+                    return sent_text
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                print(
+                    "Не удалось отправить HTML-предупреждение без кнопки; "
+                    f"повторяем plain text type={effective_type}: {exc}"
+                )
+
+        # 4. Plain text без форматирования — защищает от malformed HTML.
+        plain_text = telegram_html_to_plain_text(caption) or (
+            f"{full_name}, это действие сейчас недоступно. Сообщение удалено."
+        )
+        return await bot_send_message(
+            bot,
+            int(chat_id),
+            plain_text,
+            wait=True,
+            disable_web_page_preview=True,
+            **thread_kwargs,
         )
 
     sent = await replace_warning(

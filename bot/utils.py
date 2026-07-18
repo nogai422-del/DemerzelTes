@@ -3,6 +3,7 @@
 import os
 import random
 import html
+import re
 import time
 import aiohttp
 from bs4 import BeautifulSoup
@@ -474,3 +475,33 @@ def resolve_bot_image_path(path: str) -> str:
         if os.path.isfile(jpg):
             return jpg
     return candidate
+
+
+def normalize_telegram_button_url(value: str | None) -> str:
+    """Нормализует URL для InlineKeyboardButton и отбрасывает опасные значения."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+
+    if raw.startswith("@"):
+        username = raw[1:].strip()
+        if re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+            return f"https://t.me/{username}"
+        return ""
+
+    lowered = raw.lower()
+    if lowered.startswith("t.me/") or lowered.startswith("www.t.me/"):
+        return "https://" + raw
+    if lowered.startswith(("https://", "http://", "tg://")):
+        return raw
+    return ""
+
+
+def telegram_html_to_plain_text(value: str | None) -> str:
+    """Делает читаемый plain-text fallback, если Telegram отклонил HTML."""
+    text = str(value or "")
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text, flags=re.I | re.S)
+    text = re.sub(r"</?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote)(?:\s+[^>]*)?>", "", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text).strip()

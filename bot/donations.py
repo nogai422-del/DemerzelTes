@@ -17,7 +17,7 @@ from aiogram.utils.formatting import html_decoration as hd
 from bot.database import db
 from bot.message_queue import bot_send_message, bot_send_photo_to_chat, bot_send_animation_to_chat
 from bot.warning_state import replace_warning
-from bot.utils import resolve_bot_image_path
+from bot.utils import normalize_telegram_button_url, resolve_bot_image_path, telegram_html_to_plain_text
 
 DAY_SECONDS = 86400
 DEFAULT_LONG_PACKAGE_MIN_DAYS = 28
@@ -785,7 +785,7 @@ def _build_keyboard(template: dict[str, Any]) -> InlineKeyboardMarkup | None:
 
     for number in (1, 2):
         text = (template.get(f"button{number}_text") or "").strip()
-        url = (template.get(f"button{number}_url") or "").strip()
+        url = normalize_telegram_button_url(template.get(f"button{number}_url"))
         if text and url:
             buttons.append(InlineKeyboardButton(text=text, url=url))
 
@@ -855,6 +855,7 @@ async def _send_notification(
     limit: int | None = None,
     used_today: int | None = None,
 ) -> Any:
+    """Отправляет донат-уведомление с несколькими безопасными fallback."""
     category = str(grant["category"])
     chat_id = int(grant["chat_id"])
     user_id = int(grant["user_id"])
@@ -862,7 +863,15 @@ async def _send_notification(
 
     template = await get_notification_template(category, event_type)
     if template is None:
-        raise RuntimeError(f"Нет шаблона уведомления {category}/{event_type}")
+        # Даже удалённая строка в БД не должна полностью отключать оповещение.
+        template = {
+            "message": DEFAULT_TEMPLATES.get((category, event_type), "{user}"),
+            "image_path": "",
+            "button1_text": "",
+            "button1_url": "",
+            "button2_text": "",
+            "button2_url": "",
+        }
 
     full_name = await _get_user_name(bot, chat_id, user_id)
     text = _render_message(
@@ -889,6 +898,19 @@ async def _send_notification(
     if message_thread_id is not None:
         reply_kwargs["message_thread_id"] = int(message_thread_id)
 
+    async def _send_html(reply_markup=keyboard):
+        return await bot_send_message(
+            bot,
+            chat_id,
+            text,
+            wait=True,
+            parse_mode="HTML",
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+            **reply_kwargs,
+        )
+
+    # 1. Полная карточка с изображением.
     if full_image_path and os.path.isfile(full_image_path):
         media_kwargs = dict(
             wait=True,
@@ -897,27 +919,62 @@ async def _send_notification(
             reply_markup=keyboard,
             **reply_kwargs,
         )
-        # GIF нельзя надёжно отправлять через sendPhoto: Telegram ждёт animation.
-        if os.path.splitext(full_image_path)[1].lower() == ".gif":
-            sent = await bot_send_animation_to_chat(
-                bot, chat_id, FSInputFile(full_image_path), **media_kwargs
+        try:
+            if os.path.splitext(full_image_path)[1].lower() == ".gif":
+                sent = await bot_send_animation_to_chat(
+                    bot, chat_id, FSInputFile(full_image_path), **media_kwargs
+                )
+            else:
+                sent = await bot_send_photo_to_chat(
+                    bot, chat_id, FSInputFile(full_image_path), **media_kwargs
+                )
+            if sent is not None:
+                return sent
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(
+                "Не удалось отправить изображение донат-уведомления; "
+                f"повторяем текстом {category}/{event_type}: {exc}"
             )
-        else:
-            sent = await bot_send_photo_to_chat(
-                bot, chat_id, FSInputFile(full_image_path), **media_kwargs
-            )
-    else:
-        sent = await bot_send_message(
-            bot,
-            chat_id,
-            text,
-            wait=True,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-            disable_web_page_preview=True,
-            **reply_kwargs,
+
+    # 2. HTML с нормализованными кнопками.
+    try:
+        sent = await _send_html()
+        if sent is not None:
+            return sent
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        print(
+            "Не удалось отправить HTML донат-уведомления; "
+            f"повторяем без кнопок {category}/{event_type}: {exc}"
         )
 
+    # 3. HTML без кнопок: защищает от BUTTON_URL_INVALID.
+    if keyboard is not None:
+        try:
+            sent = await _send_html(reply_markup=None)
+            if sent is not None:
+                return sent
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(
+                "Не удалось отправить HTML без кнопок; "
+                f"повторяем plain text {category}/{event_type}: {exc}"
+            )
+
+    # 4. Plain text без HTML и кнопок.
+    plain_text = telegram_html_to_plain_text(text) or f"Уведомление для пользователя {user_id}."
+    sent = await bot_send_message(
+        bot,
+        chat_id,
+        plain_text,
+        wait=True,
+        disable_web_page_preview=True,
+        **reply_kwargs,
+    )
     if sent is None:
         raise RuntimeError(f"Не удалось отправить донат-уведомление в chat_id={chat_id}")
     return sent
