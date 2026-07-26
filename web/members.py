@@ -18,6 +18,7 @@ from flask import Blueprint, redirect, render_template, request, session
 from bot.database import DB_PATH, db
 from bot.donations import CATEGORY_TITLES, ensure_donation_schema, extend_donation_grant
 from bot.schema import ensure_database_ready
+from bot.telethon_sync import configured as telethon_configured, get_sync_state, sync_chat_members
 from env_config import require_env
 
 members_bp = Blueprint("members", __name__)
@@ -125,6 +126,22 @@ async def _send_grant_notification(
     finally:
         await notify_bot.session.close()
 
+
+
+
+@members_bp.post("/members/sync")
+async def sync_members():
+    if not _auth():
+        return redirect("/login")
+    chat_id = _to_int(request.form.get("chat_id"))
+    if not chat_id:
+        return _members_redirect(error="sync_chat")
+    try:
+        result = await sync_chat_members(chat_id)
+        return _members_redirect(chat_id=chat_id, notice=f"synced_{result['found']}_{result['new']}_{result['updated']}_{result['missing']}")
+    except Exception as exc:
+        print(f"Telethon sync failed for {chat_id}: {exc}")
+        return _members_redirect(chat_id=chat_id, error="sync")
 
 @members_bp.route("/members", methods=["GET", "POST"])
 async def members():
@@ -394,6 +411,8 @@ async def members():
         "saved": int(stage_counts_row[2] or 0),
     }
 
+    sync_state = await get_sync_state(selected_chat_id) if selected_chat_id else {}
+
     return render_template(
         "members.html",
         members=members_rows,
@@ -419,4 +438,6 @@ async def members():
             "stages": stage_counts,
         },
         csrf_token=session["csrf_token"],
+        telethon_configured=telethon_configured(),
+        sync_state=sync_state,
     )

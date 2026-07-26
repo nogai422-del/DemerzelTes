@@ -6,3 +6,5 @@ waitress
 emoji
 beautifulsoup4
 Pillow
+
+telethon>=1.40.0

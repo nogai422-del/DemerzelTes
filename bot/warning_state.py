@@ -2,7 +2,7 @@
 
 import asyncio
 import time
-from collections import defaultdict
+from weakref import WeakValueDictionary
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -10,7 +10,15 @@ from bot.database import db
 from bot.notification_delivery import resolve_notification_source_path
 
 _SCHEMA_READY = False
-_WARNING_LOCKS: defaultdict[tuple[int, int], asyncio.Lock] = defaultdict(asyncio.Lock)
+_WARNING_LOCKS: WeakValueDictionary[tuple[int, int], asyncio.Lock] = WeakValueDictionary()
+
+
+def _warning_lock(key: tuple[int, int]) -> asyncio.Lock:
+    lock = _WARNING_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _WARNING_LOCKS[key] = lock
+    return lock
 _SEEN_MEDIA_GROUPS: dict[tuple[int, int, str], float] = {}
 _MEDIA_GROUP_TTL_SECONDS = 60.0
 
@@ -410,7 +418,7 @@ async def replace_warning(
 ) -> Any | None:
     """Удаляет прошлую карточку пользователя и отправляет одну актуальную."""
     key = (int(chat_id), int(user_id))
-    async with _WARNING_LOCKS[key]:
+    async with _warning_lock(key):
         media_key: tuple[int, int, str] | None = None
         if media_group_id:
             now = time.monotonic()
@@ -449,11 +457,10 @@ async def replace_warning(
                 pass
         return sent
 
-
 async def clear_warning(bot: Any, chat_id: int, user_id: int) -> None:
     """Удаляет активное предупреждение пользователя при смене этапа."""
     key = (int(chat_id), int(user_id))
-    async with _WARNING_LOCKS[key]:
+    async with _warning_lock(key):
         old_message_id = await _get_warning_message_id(*key)
         if old_message_id:
             try:

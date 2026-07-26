@@ -63,7 +63,12 @@
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
   <section class="section-card">
-    <div class="section-header"><div><h2>Этап 1 · До команды /bv</h2><p>Одно универсальное предупреждение для пользователя, которому ещё не отправили анкету.</p></div><span class="section-icon">1</span></div>
+    <div class="section-header"><div><h2>Этап 1 · До команды /bv</h2><p>Настройте, что происходит при попытке использовать функции до выдачи анкеты.</p></div><span class="section-icon">1</span></div>
+    <div class="form-group full"><label>Поведение до /bv</label><select name="pre_bv_mode">
+      <option value="silent" {% if pre_bv_mode == 'silent' %}selected{% endif %}>Запрещать молча — рекомендуемый режим</option>
+      <option value="notify" {% if pre_bv_mode == 'notify' %}selected{% endif %}>Запрещать и показывать уведомление</option>
+      <option value="allow" {% if pre_bv_mode == 'allow' %}selected{% endif %}>Разрешить функции до /bv</option>
+    </select><span class="field-help">В режиме «молча» запрещённое сообщение удаляется, но предупреждение в чат не отправляется.</span></div>
     {% if onboarding %}
       {{ notification_editor(onboarding, true, 'Используется до первой команды /bv') }}
     {% else %}

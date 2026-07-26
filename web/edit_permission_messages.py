@@ -8,6 +8,7 @@ from bot.database import db
 from bot.donations import ensure_donation_schema
 from bot.utils import normalize_telegram_button_url
 from bot.notification_delivery import notification_upload_dir, store_notification_upload
+from bot.settings import get_pre_bv_mode, set_pre_bv_mode
 from bot.warning_state import (
     ONBOARDING_PERMISSION_TYPE,
     base_permission_type,
@@ -172,6 +173,7 @@ async def edit_permission_messages():
             media_rows[media_type][field] = request.form.get(key)
 
         try:
+            await set_pre_bv_mode(request.form.get("pre_bv_mode", "silent"))
             async with db() as cur:
                 for media_type, row in media_rows.items():
                     message = row.get("message", "")
@@ -261,6 +263,7 @@ async def edit_permission_messages():
     filling_list.sort(key=lambda item: str(item["title"]).casefold())
     regular_list.sort(key=lambda item: str(item["title"]).casefold())
     reaction_denied = await _load_reaction_denied_template()
+    pre_bv_mode = await get_pre_bv_mode()
 
     return render_template(
         "edit_permission_messages.html",
@@ -268,6 +271,7 @@ async def edit_permission_messages():
         filling_list=filling_list,
         regular_list=regular_list,
         reaction_denied=reaction_denied,
+        pre_bv_mode=pre_bv_mode,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),
         image_error=request.args.get("image_error"),

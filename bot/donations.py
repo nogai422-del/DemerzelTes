@@ -1042,7 +1042,6 @@ async def send_reaction_denied_notification(
             bot,
             grant,
             "denied",
-            reply_to_message_id=int(message_id),
         )
 
     await replace_warning(

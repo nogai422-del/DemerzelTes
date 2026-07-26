@@ -16,15 +16,23 @@ async def ensure_chat_behavior_schema() -> None:
             """
             CREATE TABLE IF NOT EXISTS chat_behavior_settings (
                 id                            INTEGER PRIMARY KEY CHECK (id = 1),
-                restrict_new_members_telegram INTEGER NOT NULL DEFAULT 0
+                restrict_new_members_telegram INTEGER NOT NULL DEFAULT 0,
+                pre_bv_mode TEXT NOT NULL DEFAULT 'silent'
             )
             """
         )
+        await cur.execute("PRAGMA table_info(chat_behavior_settings)")
+        columns = {str(row[1]) for row in await cur.fetchall()}
+        if "pre_bv_mode" not in columns:
+            await cur.execute(
+                "ALTER TABLE chat_behavior_settings "
+                "ADD COLUMN pre_bv_mode TEXT NOT NULL DEFAULT 'silent'"
+            )
         await cur.execute(
             """
             INSERT OR IGNORE INTO chat_behavior_settings (
-                id, restrict_new_members_telegram
-            ) VALUES (1, 0)
+                id, restrict_new_members_telegram, pre_bv_mode
+            ) VALUES (1, 0, 'silent')
             """
         )
 
@@ -64,3 +72,30 @@ async def set_restrict_new_members_telegram(enabled: bool) -> None:
             """,
             (1 if enabled else 0,),
         )
+
+
+async def get_pre_bv_mode() -> str:
+    """Режим до /bv: silent, notify или allow."""
+    await ensure_chat_behavior_schema()
+    async with db() as cur:
+        await cur.execute("PRAGMA table_info(chat_behavior_settings)")
+        columns = {str(row[1]) for row in await cur.fetchall()}
+        if "pre_bv_mode" not in columns:
+            await cur.execute("ALTER TABLE chat_behavior_settings ADD COLUMN pre_bv_mode TEXT NOT NULL DEFAULT 'silent'")
+        await cur.execute("SELECT pre_bv_mode FROM chat_behavior_settings WHERE id=1")
+        row = await cur.fetchone()
+    value = str(row[0] if row else "silent")
+    return value if value in {"silent", "notify", "allow"} else "silent"
+
+
+async def set_pre_bv_mode(mode: str) -> None:
+    mode = str(mode or "silent")
+    if mode not in {"silent", "notify", "allow"}:
+        mode = "silent"
+    await ensure_chat_behavior_schema()
+    async with db() as cur:
+        await cur.execute("PRAGMA table_info(chat_behavior_settings)")
+        columns = {str(row[1]) for row in await cur.fetchall()}
+        if "pre_bv_mode" not in columns:
+            await cur.execute("ALTER TABLE chat_behavior_settings ADD COLUMN pre_bv_mode TEXT NOT NULL DEFAULT 'silent'")
+        await cur.execute("UPDATE chat_behavior_settings SET pre_bv_mode=? WHERE id=1", (mode,))

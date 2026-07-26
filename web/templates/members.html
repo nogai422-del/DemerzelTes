@@ -4,11 +4,16 @@
 {% block page_title %}Участники{% endblock %}
 {% block page_description %}Поиск, этапы анкеты, активные донаты, CSV-импорт и быстрая выдача доступа с уведомлением в Telegram-чат.{% endblock %}
 {% block page_actions %}
+  <form method="post" action="{{ url_for('members.sync_members') }}" style="display:inline-flex">
+    <input type="hidden" name="chat_id" value="{{ selected_chat_id }}">
+    <button type="submit" class="button button-ghost" {% if not telethon_configured %}disabled title="Добавьте TELETHON_API_ID, TELETHON_API_HASH и TELETHON_SESSION"{% endif %}>Синхронизировать Telegram</button>
+  </form>
   <button type="button" class="button" data-open-grant data-user-id="" data-user-name="">Выдать донат</button>
 {% endblock %}
 {% block notices %}
   {% if notice == 'granted' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Донат выдан</strong>Оповещение отправлено пользователю в выбранный чат.</div></div>{% endif %}
   {% if notice == 'granted_notify_failed' %}<div class="notice notice-warning"><span class="notice-icon">!</span><div><strong>Донат сохранён, но сообщение не отправлено</strong>Проверьте, что бот находится в выбранном чате и может отправлять сообщения.</div></div>{% endif %}
+  {% if notice and notice.startswith('synced_') %}{% set sp = notice.split('_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Участники синхронизированы</strong>Найдено: {{ sp[1] }}, новых: {{ sp[2] }}, обновлено: {{ sp[3] }}, отсутствуют: {{ sp[4] }}.</div></div>{% endif %}
   {% if notice and notice.startswith('imported_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>CSV импортирован</strong>Загружено записей: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
   {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось выполнить действие</strong>
     {% if error == 'csrf' %}Обновите страницу и повторите действие.
@@ -16,6 +21,8 @@
     {% elif error == 'encoding' %}Не удалось определить кодировку файла.
     {% elif error == 'columns' %}В CSV отсутствует обязательная колонка <code>user_id</code>.
     {% elif error == 'bad_csv' %}Файл повреждён или имеет неверную структуру.
+    {% elif error == 'sync' %}Синхронизация Telethon завершилась ошибкой. Проверьте настройки и журнал приложения.
+    {% elif error == 'sync_chat' %}Не выбран Telegram-чат.
     {% elif error == 'grant' %}Проверьте ID чата, пользователя, срок и тип доната.
     {% else %}Код ошибки: {{ error }}.
     {% endif %}</div></div>{% endif %}
@@ -28,6 +35,7 @@
   <article class="member-stat"><span>Анкета сохранена</span><strong>{{ stats.stages.saved }}</strong><small>Прошли /save</small></article>
   <article class="member-stat"><span>Активные донаты</span><strong>{{ stats.active_donations }}</strong><small>В выбранном чате</small></article>
 </section>
+{% if sync_state %}<section class="section-card compact"><div class="section-header"><div><h2>Синхронизация Telegram</h2><p>Статус: <strong>{{ sync_state.status or 'не запускалась' }}</strong>. Найдено {{ sync_state.found_count or 0 }}, новых {{ sync_state.new_count or 0 }}, обновлено {{ sync_state.updated_count or 0 }}, отсутствуют {{ sync_state.missing_count or 0 }}.</p>{% if sync_state.error_text %}<p>{{ sync_state.error_text }}</p>{% endif %}</div><span class="section-icon">↻</span></div></section>{% endif %}
 
 <section class="section-card compact">
   <form method="get" class="member-filter-grid" data-member-filter>

@@ -21,6 +21,7 @@ from bot.scheduled_messages import scheduled_messages_loop
 from bot.donations import donation_notifications_loop, ensure_donation_schema
 from bot.settings import ensure_chat_behavior_schema
 from bot.warning_state import ensure_warning_schema
+from bot.message_queue import shutdown_message_queue
 
 dp = Dispatcher()
 
@@ -80,3 +81,5 @@ async def main():
         await asyncio.gather(
             daily_task, wisdom_task, scheduled_task, donation_task, return_exceptions=True
         )
+        await shutdown_message_queue()
+        await bot.session.close()
