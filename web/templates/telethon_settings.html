@@ -6,7 +6,7 @@
 
 {% block notices %}
   {% if notice == 'saved' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Параметры будут использованы при следующей проверке или синхронизации.</div></div>{% endif %}
-  {% if notice == 'code_sent' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Код отправлен</strong>Введите код, который Telegram прислал в приложение или по SMS.</div></div>{% endif %}
+  {% if notice == 'code_sent' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Запрос кода принят</strong>Проверьте служебный чат Telegram на всех устройствах. Код обычно приходит в приложение, а не по SMS.</div></div>{% endif %}
   {% if notice == 'password_needed' %}<div class="notice notice-success"><span class="notice-icon">→</span><div><strong>Требуется пароль 2FA</strong>Введите пароль двухэтапной аутентификации Telegram.</div></div>{% endif %}
   {% if notice.startswith('authorized_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Telethon подключён</strong>Сессия успешно авторизована и сохранена в основной базе. Telegram ID: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
   {% if notice == 'disconnected' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Сессия отключена</strong>Сохранённая StringSession удалена, автосинхронизация выключена.</div></div>{% endif %}
@@ -38,19 +38,27 @@
         <span>{{ settings.authorized_name or 'Telegram-пользователь' }}{% if settings.authorized_username %} · @{{ settings.authorized_username }}{% endif %}{% if settings.authorized_user_id %} · ID {{ settings.authorized_user_id }}{% endif %}</span>
         <span>StringSession: {{ masked_session }}</span>
       </div>
-    {% elif auth_state.status == 'code_sent' %}
-      <div class="form-grid">
-        <label class="field"><span>Код подтверждения</span><input type="text" inputmode="numeric" name="telegram_code" placeholder="12345" maxlength="12" autocomplete="one-time-code"><small>Код отправлен на {{ auth_state.phone }}.</small></label>
-      </div>
-      <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="confirm_code">Подтвердить код</button><button class="button" type="submit" name="action" value="request_code">Отправить новый код</button></div>
     {% elif auth_state.status == 'password_needed' %}
       <div class="form-grid">
         <label class="field"><span>Пароль двухэтапной аутентификации</span><input type="password" name="telegram_password" placeholder="Пароль 2FA" autocomplete="current-password"></label>
       </div>
       <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="confirm_password">Подтвердить пароль</button></div>
     {% else %}
-      <div class="info-panel"><strong>Аккаунт ещё не подключён</strong><span>Сохраните API ID, API Hash и номер телефона, затем запросите код.</span></div>
-      <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="request_code">Получить код Telegram</button></div>
+      <div class="info-panel">
+        <strong>{% if auth_state.status == 'code_sent' %}Код запрошен{% else %}Аккаунт ещё не подключён{% endif %}</strong>
+        <span>Telegram чаще всего отправляет код в служебный чат «Telegram» внутри приложения на уже авторизованном устройстве. SMS используется не всегда.</span>
+        {% if auth_state.status == 'code_sent' %}
+          <span>Номер: {{ auth_state.phone }} · способ доставки: {{ auth_state.delivery_type or 'Telegram-приложение' }}{% if auth_state.next_delivery_type %} · следующий способ: {{ auth_state.next_delivery_type }}{% endif %}{% if auth_state.timeout_seconds|int > 0 %} · повторный запрос примерно через {{ auth_state.timeout_seconds }} сек.{% endif %}</span>
+        {% endif %}
+        {% if auth_state.error_text %}<span>Последняя ошибка: {{ auth_state.error_text }}</span>{% endif %}
+      </div>
+      <div class="form-grid">
+        <label class="field"><span>Код подтверждения</span><input type="text" inputmode="numeric" name="telegram_code" placeholder="12345" maxlength="12" autocomplete="one-time-code"><small>Поле доступно всегда. Сначала нажмите «Получить код», затем введите его сюда.</small></label>
+      </div>
+      <div class="action-bar">
+        <button class="button button-primary" type="submit" name="action" value="request_code">{% if auth_state.status == 'code_sent' %}Запросить код повторно{% else %}Получить код Telegram{% endif %}</button>
+        <button class="button" type="submit" name="action" value="confirm_code">Подтвердить введённый код</button>
+      </div>
     {% endif %}
   </section>
 

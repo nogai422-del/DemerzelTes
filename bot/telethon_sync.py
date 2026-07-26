@@ -47,12 +47,17 @@ async def begin_telethon_authorization(phone: str) -> dict:
             await client.connect()
             sent = await client.send_code_request(phone)
             pending = client.session.save()
+            delivery_type = type(getattr(sent, "type", None)).__name__.replace("SentCodeType", "").lower()
+            next_delivery_type = type(getattr(sent, "next_type", None)).__name__.replace("CodeType", "").lower() if getattr(sent, "next_type", None) else ""
             await save_auth_state(
                 status="code_sent",
                 phone=phone,
                 phone_code_hash=sent.phone_code_hash,
                 pending_session=pending,
                 error_text="",
+                delivery_type=delivery_type,
+                next_delivery_type=next_delivery_type,
+                timeout_seconds=str(getattr(sent, "timeout", 0) or 0),
             )
             await save_telethon_settings({"phone": phone})
             return {"status": "code_sent", "phone": phone}

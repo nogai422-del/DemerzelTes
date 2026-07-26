@@ -45,6 +45,9 @@ async def ensure_telethon_settings_schema() -> None:
                 phone_code_hash TEXT NOT NULL DEFAULT '',
                 pending_session TEXT NOT NULL DEFAULT '',
                 error_text TEXT NOT NULL DEFAULT '',
+                delivery_type TEXT NOT NULL DEFAULT '',
+                next_delivery_type TEXT NOT NULL DEFAULT '',
+                timeout_seconds INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL DEFAULT 0
             )
             """
@@ -54,6 +57,15 @@ async def ensure_telethon_settings_schema() -> None:
                (singleton,status,updated_at) VALUES(1,'idle',?)""",
             (int(time.time()),),
         )
+        await cur.execute("PRAGMA table_info(telethon_auth_state)")
+        columns = {str(row[1]) for row in await cur.fetchall()}
+        for name, ddl in {
+            "delivery_type": "TEXT NOT NULL DEFAULT ''",
+            "next_delivery_type": "TEXT NOT NULL DEFAULT ''",
+            "timeout_seconds": "INTEGER NOT NULL DEFAULT 0",
+        }.items():
+            if name not in columns:
+                await cur.execute(f"ALTER TABLE telethon_auth_state ADD COLUMN {name} {ddl}")
 
 
 async def get_telethon_settings(*, include_secrets: bool = True) -> dict:
@@ -122,8 +134,8 @@ async def get_auth_state() -> dict:
 
 async def save_auth_state(**values) -> None:
     await ensure_telethon_settings_schema()
-    allowed = {"status", "phone", "phone_code_hash", "pending_session", "error_text"}
-    values = {k: str(v or "") for k, v in values.items() if k in allowed}
+    allowed = {"status", "phone", "phone_code_hash", "pending_session", "error_text", "delivery_type", "next_delivery_type", "timeout_seconds"}
+    values = {k: str(v if v is not None else "") for k, v in values.items() if k in allowed}
     if not values:
         return
     assignments = ", ".join(f"{key}=?" for key in values)
@@ -137,7 +149,7 @@ async def save_auth_state(**values) -> None:
 
 async def clear_auth_state() -> None:
     await save_auth_state(
-        status="idle", phone="", phone_code_hash="", pending_session="", error_text=""
+        status="idle", phone="", phone_code_hash="", pending_session="", error_text="", delivery_type="", next_delivery_type="", timeout_seconds="0"
     )
 
 
