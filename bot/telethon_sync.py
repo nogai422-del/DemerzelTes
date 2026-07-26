@@ -2,17 +2,27 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import time
 from datetime import datetime, timezone
 
 from bot.database import db
+from bot.telethon_settings import get_telethon_settings
 
 _sync_lock = asyncio.Lock()
 
 
-def configured() -> bool:
-    return all((os.getenv(k) or '').strip() for k in ('TELETHON_API_ID','TELETHON_API_HASH','TELETHON_SESSION'))
+async def configured() -> bool:
+    settings = await get_telethon_settings()
+    return bool(settings.get("enabled") and settings.get("api_id") and settings.get("api_hash") and settings.get("session"))
+
+
+def _build_client(settings: dict):
+    from telethon import TelegramClient
+    session_value = str(settings.get("session") or "").strip()
+    if settings.get("session_type") == "string":
+        from telethon.sessions import StringSession
+        session_value = StringSession(session_value)
+    return TelegramClient(session_value, int(settings["api_id"]), settings["api_hash"])
 
 
 async def ensure_sync_schema() -> None:
@@ -42,10 +52,41 @@ async def get_sync_state(chat_id: int) -> dict:
     return dict(row) if row else {}
 
 
-async def sync_chat_members(chat_id: int) -> dict:
-    if not configured():
-        raise RuntimeError('Не заданы TELETHON_API_ID, TELETHON_API_HASH и TELETHON_SESSION')
-    from telethon import TelegramClient
+async def test_telethon_connection() -> dict:
+    settings = await get_telethon_settings()
+    missing = [key for key in ("api_id", "api_hash", "session") if not settings.get(key)]
+    if missing:
+        raise RuntimeError("Не заполнены обязательные поля: " + ", ".join(missing))
+    client = _build_client(settings)
+    try:
+        await client.connect()
+        if not await client.is_user_authorized():
+            raise RuntimeError("Сессия Telethon не авторизована. Сначала создайте авторизованную session-файл или StringSession.")
+        me = await client.get_me()
+        return {
+            "authorized": True,
+            "user_id": int(me.id),
+            "username": me.username or "",
+            "name": " ".join(x for x in (me.first_name, me.last_name) if x).strip(),
+        }
+    finally:
+        await client.disconnect()
+
+
+async def sync_chat_members(chat_id: int | None = None) -> dict:
+    settings = await get_telethon_settings()
+    if not settings.get("enabled"):
+        raise RuntimeError("Telethon выключен в административной панели")
+    if not all(settings.get(k) for k in ("api_id", "api_hash", "session")):
+        raise RuntimeError('Не заданы API ID, API Hash и сессия Telethon')
+    if not chat_id:
+        try:
+            chat_id = int(str(settings.get("default_chat_id") or "").strip())
+        except ValueError:
+            chat_id = 0
+    if not chat_id:
+        raise RuntimeError("Не выбран Telegram-чат")
+
     from telethon.tl.types import UserStatusOnline, UserStatusOffline, UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth
 
     async with _sync_lock:
@@ -55,9 +96,11 @@ async def sync_chat_members(chat_id: int) -> dict:
             await cur.execute('''INSERT INTO member_sync_state(chat_id,last_started_at,status,error_text)
                 VALUES(?,?,'running','') ON CONFLICT(chat_id) DO UPDATE SET
                 last_started_at=excluded.last_started_at,status='running',error_text='' ''',(int(chat_id),started))
-        client=TelegramClient(os.getenv('TELETHON_SESSION'), int(os.getenv('TELETHON_API_ID')), os.getenv('TELETHON_API_HASH'))
+        client=_build_client(settings)
         try:
-            await client.start()
+            await client.connect()
+            if not await client.is_user_authorized():
+                raise RuntimeError("Сессия Telethon не авторизована")
             members=[]
             async for user in client.iter_participants(int(chat_id)):
                 status='unknown'; last_seen=''
@@ -94,3 +137,24 @@ async def sync_chat_members(chat_id: int) -> dict:
             raise
         finally:
             await client.disconnect()
+
+
+async def telethon_auto_sync_loop() -> None:
+    """Периодически синхронизирует основной чат согласно настройкам панели."""
+    while True:
+        try:
+            settings = await get_telethon_settings()
+            interval = max(15, int(settings.get("sync_interval_minutes") or 360))
+            if settings.get("enabled") and settings.get("auto_sync_enabled"):
+                chat_id = int(str(settings.get("default_chat_id") or "0"))
+                if chat_id:
+                    try:
+                        await sync_chat_members(chat_id)
+                    except Exception as exc:
+                        print(f"Автосинхронизация Telethon завершилась ошибкой: {exc}")
+            await asyncio.sleep(interval * 60)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            print(f"Ошибка цикла Telethon: {exc}")
+            await asyncio.sleep(900)

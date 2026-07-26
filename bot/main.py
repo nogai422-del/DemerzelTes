@@ -22,6 +22,7 @@ from bot.donations import donation_notifications_loop, ensure_donation_schema
 from bot.settings import ensure_chat_behavior_schema
 from bot.warning_state import ensure_warning_schema
 from bot.message_queue import shutdown_message_queue
+from bot.telethon_sync import telethon_auto_sync_loop
 
 dp = Dispatcher()
 
@@ -67,6 +68,7 @@ async def main():
     wisdom_task = asyncio.create_task(wisdom_loop(bot))
     scheduled_task = asyncio.create_task(scheduled_messages_loop(bot))
     donation_task = asyncio.create_task(donation_notifications_loop(bot))
+    telethon_task = asyncio.create_task(telethon_auto_sync_loop())
 
     try:
         await dp.start_polling(
@@ -75,11 +77,11 @@ async def main():
         )
 
     finally:
-        for task in (daily_task, wisdom_task, scheduled_task, donation_task):
+        for task in (daily_task, wisdom_task, scheduled_task, donation_task, telethon_task):
             task.cancel()
 
         await asyncio.gather(
-            daily_task, wisdom_task, scheduled_task, donation_task, return_exceptions=True
+            daily_task, wisdom_task, scheduled_task, donation_task, telethon_task, return_exceptions=True
         )
         await shutdown_message_queue()
         await bot.session.close()

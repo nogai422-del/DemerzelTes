@@ -438,6 +438,6 @@ async def members():
             "stages": stage_counts,
         },
         csrf_token=session["csrf_token"],
-        telethon_configured=telethon_configured(),
+        telethon_configured=await telethon_configured(),
         sync_state=sync_state,
     )

@@ -76,6 +76,9 @@ def create_app():
     from .members import members_bp
     app.register_blueprint(members_bp)
 
+    from .telethon_settings import telethon_settings_bp
+    app.register_blueprint(telethon_settings_bp)
+
     @app.context_processor
     def inject_ui_settings():
         return {"ui_settings": get_ui_settings()}

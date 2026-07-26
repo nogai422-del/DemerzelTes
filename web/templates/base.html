@@ -29,6 +29,9 @@
       <a class="nav-link {% if request.path == '/members' %}active{% endif %}" href="{{ url_for('members.members') }}">
         <span class="nav-icon">☰</span><span>Участники</span>
       </a>
+      <a class="nav-link {% if request.path == '/telethon_settings' %}active{% endif %}" href="{{ url_for('telethon_settings.telethon_settings') }}">
+        <span class="nav-icon">⌁</span><span>Telethon</span>
+      </a>
       <a class="nav-link {% if request.path == '/edit_form' %}active{% endif %}" href="{{ url_for('edit_form.edit_form') }}">
         <span class="nav-icon">☷</span><span>Вопросы анкеты</span>
       </a>
