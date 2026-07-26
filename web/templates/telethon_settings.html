@@ -2,28 +2,56 @@
 {% block title %}Telethon — Demerzel{% endblock %}
 {% block kicker %}Интеграции{% endblock %}
 {% block page_title %}Настройки Telethon{% endblock %}
-{% block page_description %}Подключение пользовательской Telegram-сессии для актуализации списка и статусов участников.{% endblock %}
+{% block page_description %}Авторизация Telegram-аккаунта и актуализация списка участников без отдельных session-файлов.{% endblock %}
 
 {% block notices %}
-  {% if notice == 'saved' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Новые параметры будут использованы при следующей проверке или синхронизации.</div></div>{% endif %}
-  {% if notice.startswith('test_ok_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Подключение работает</strong>Telethon-сессия авторизована. Telegram ID сессии: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
+  {% if notice == 'saved' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Параметры будут использованы при следующей проверке или синхронизации.</div></div>{% endif %}
+  {% if notice == 'code_sent' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Код отправлен</strong>Введите код, который Telegram прислал в приложение или по SMS.</div></div>{% endif %}
+  {% if notice == 'password_needed' %}<div class="notice notice-success"><span class="notice-icon">→</span><div><strong>Требуется пароль 2FA</strong>Введите пароль двухэтапной аутентификации Telegram.</div></div>{% endif %}
+  {% if notice.startswith('authorized_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Telethon подключён</strong>Сессия успешно авторизована и сохранена в основной базе. Telegram ID: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
+  {% if notice == 'disconnected' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Сессия отключена</strong>Сохранённая StringSession удалена, автосинхронизация выключена.</div></div>{% endif %}
+  {% if notice.startswith('test_ok_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Подключение работает</strong>Telethon-сессия авторизована. Telegram ID: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
   {% if notice.startswith('synced_') %}{% set p=notice.split('_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Синхронизация завершена</strong>Найдено {{ p[1] }}, новых {{ p[2] }}, обновлено {{ p[3] }}, отсутствуют {{ p[4] }}.</div></div>{% endif %}
-  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось выполнить действие</strong>{% if error == 'csrf' %}Обновите страницу и повторите.{% elif last_error %}{{ last_error }}{% else %}Проверьте параметры Telethon и журнал приложения.{% endif %}</div></div>{% endif %}
+  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось выполнить действие</strong>{% if error == 'csrf' %}Обновите страницу и повторите.{% elif last_error %}{{ last_error }}{% else %}Проверьте параметры и журнал приложения.{% endif %}</div></div>{% endif %}
 {% endblock %}
 
 {% block content %}
-<form method="post" class="settings-layout">
+<form method="post" class="settings-layout" autocomplete="off">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
   <section class="section-card">
-    <div class="section-header"><div><h2>Подключение</h2><p>API ID и API Hash создаются на my.telegram.org. Сессия должна быть заранее авторизована.</p></div><span class="section-icon">⌁</span></div>
+    <div class="section-header"><div><h2>API Telegram</h2><p>API ID и API Hash создаются на my.telegram.org. API Hash после сохранения не показывается целиком.</p></div><span class="section-icon">⌁</span></div>
     <div class="form-grid">
       <label class="field"><span>Telethon включён</span><select name="enabled"><option value="1" {% if settings.enabled %}selected{% endif %}>Да</option><option value="0" {% if not settings.enabled %}selected{% endif %}>Нет</option></select></label>
       <label class="field"><span>API ID</span><input type="number" name="api_id" value="{{ settings.api_id }}" placeholder="12345678" min="1"></label>
       <label class="field"><span>API Hash</span><input type="password" name="api_hash" value="" placeholder="Оставьте пустым, чтобы не менять"><small>Сейчас: {{ masked_api_hash }}</small></label>
-      <label class="field"><span>Тип сессии</span><select name="session_type"><option value="file" {% if settings.session_type == 'file' %}selected{% endif %}>Файл сессии</option><option value="string" {% if settings.session_type == 'string' %}selected{% endif %}>StringSession</option></select></label>
-      <label class="field field-wide"><span>Путь к session-файлу или StringSession</span><input type="password" name="session_value" value="" placeholder="Оставьте пустым, чтобы не менять"><small>Сейчас: {{ masked_session }}</small></label>
+      <label class="field"><span>Номер телефона Telegram</span><input type="tel" name="phone" value="{{ settings.phone }}" placeholder="+491234567890"><small>Международный формат с символом +.</small></label>
     </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Авторизация аккаунта</h2><p>Сессия хранится как StringSession в основной базе Demerzel. Файл <code>.session</code> больше не используется.</p></div><span class="section-icon">◉</span></div>
+
+    {% if settings.session %}
+      <div class="info-panel">
+        <strong>Аккаунт подключён</strong>
+        <span>{{ settings.authorized_name or 'Telegram-пользователь' }}{% if settings.authorized_username %} · @{{ settings.authorized_username }}{% endif %}{% if settings.authorized_user_id %} · ID {{ settings.authorized_user_id }}{% endif %}</span>
+        <span>StringSession: {{ masked_session }}</span>
+      </div>
+    {% elif auth_state.status == 'code_sent' %}
+      <div class="form-grid">
+        <label class="field"><span>Код подтверждения</span><input type="text" inputmode="numeric" name="telegram_code" placeholder="12345" maxlength="12" autocomplete="one-time-code"><small>Код отправлен на {{ auth_state.phone }}.</small></label>
+      </div>
+      <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="confirm_code">Подтвердить код</button><button class="button" type="submit" name="action" value="request_code">Отправить новый код</button></div>
+    {% elif auth_state.status == 'password_needed' %}
+      <div class="form-grid">
+        <label class="field"><span>Пароль двухэтапной аутентификации</span><input type="password" name="telegram_password" placeholder="Пароль 2FA" autocomplete="current-password"></label>
+      </div>
+      <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="confirm_password">Подтвердить пароль</button></div>
+    {% else %}
+      <div class="info-panel"><strong>Аккаунт ещё не подключён</strong><span>Сохраните API ID, API Hash и номер телефона, затем запросите код.</span></div>
+      <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="request_code">Получить код Telegram</button></div>
+    {% endif %}
   </section>
 
   <section class="section-card">
@@ -38,8 +66,7 @@
 
   <div class="action-bar">
     <button class="button button-primary" type="submit" name="action" value="save">Сохранить настройки</button>
-    <button class="button" type="submit" name="action" value="test">Проверить подключение</button>
-    <button class="button" type="submit" name="action" value="sync">Синхронизировать сейчас</button>
+    {% if settings.session %}<button class="button" type="submit" name="action" value="test">Проверить подключение</button><button class="button" type="submit" name="action" value="sync">Синхронизировать сейчас</button><button class="button button-danger" type="submit" name="action" value="disconnect" onclick="return confirm('Удалить сохранённую Telethon-сессию?')">Отключить сессию</button>{% endif %}
   </div>
 </form>
 {% endblock %}

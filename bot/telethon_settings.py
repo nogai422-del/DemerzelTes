@@ -1,7 +1,8 @@
-"""Настройки Telethon, редактируемые из административной панели."""
+"""Настройки и состояние авторизации Telethon в общей базе Demerzel."""
 from __future__ import annotations
 
 import os
+import time
 from bot.database import db
 
 _DEFAULTS = {
@@ -9,7 +10,11 @@ _DEFAULTS = {
     "api_id": "",
     "api_hash": "",
     "session": "",
-    "session_type": "file",
+    "session_type": "string",
+    "phone": "",
+    "authorized_user_id": "",
+    "authorized_username": "",
+    "authorized_name": "",
     "default_chat_id": "",
     "auto_sync_enabled": "0",
     "sync_interval_minutes": "360",
@@ -31,6 +36,24 @@ async def ensure_telethon_settings_schema() -> None:
             "INSERT OR IGNORE INTO telethon_settings(setting_key, setting_value) VALUES(?, ?)",
             list(_DEFAULTS.items()),
         )
+        await cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telethon_auth_state (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                status TEXT NOT NULL DEFAULT 'idle',
+                phone TEXT NOT NULL DEFAULT '',
+                phone_code_hash TEXT NOT NULL DEFAULT '',
+                pending_session TEXT NOT NULL DEFAULT '',
+                error_text TEXT NOT NULL DEFAULT '',
+                updated_at INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        await cur.execute(
+            """INSERT OR IGNORE INTO telethon_auth_state
+               (singleton,status,updated_at) VALUES(1,'idle',?)""",
+            (int(time.time()),),
+        )
 
 
 async def get_telethon_settings(*, include_secrets: bool = True) -> dict:
@@ -40,7 +63,6 @@ async def get_telethon_settings(*, include_secrets: bool = True) -> dict:
         values = {str(row[0]): str(row[1] or "") for row in await cur.fetchall()}
     result = {**_DEFAULTS, **values}
 
-    # Переменные окружения остаются аварийным/первичным источником, если поле в БД пустое.
     env_fallbacks = {
         "api_id": "TELETHON_API_ID",
         "api_hash": "TELETHON_API_HASH",
@@ -51,6 +73,7 @@ async def get_telethon_settings(*, include_secrets: bool = True) -> dict:
         if not result.get(key):
             result[key] = (os.getenv(env_name) or "").strip()
 
+    result["session_type"] = "string"
     result["enabled"] = result.get("enabled") == "1"
     result["auto_sync_enabled"] = result.get("auto_sync_enabled") == "1"
     try:
@@ -71,6 +94,8 @@ async def save_telethon_settings(values: dict) -> None:
     for key, value in values.items():
         if key not in allowed:
             continue
+        if key == "session_type":
+            value = "string"
         rows.append((key, str(value if value is not None else "")))
     if not rows:
         return
@@ -85,6 +110,35 @@ async def save_telethon_settings(values: dict) -> None:
             """,
             rows,
         )
+
+
+async def get_auth_state() -> dict:
+    await ensure_telethon_settings_schema()
+    async with db() as cur:
+        await cur.execute("SELECT * FROM telethon_auth_state WHERE singleton=1")
+        row = await cur.fetchone()
+    return dict(row) if row else {"status": "idle"}
+
+
+async def save_auth_state(**values) -> None:
+    await ensure_telethon_settings_schema()
+    allowed = {"status", "phone", "phone_code_hash", "pending_session", "error_text"}
+    values = {k: str(v or "") for k, v in values.items() if k in allowed}
+    if not values:
+        return
+    assignments = ", ".join(f"{key}=?" for key in values)
+    params = list(values.values()) + [int(time.time())]
+    async with db() as cur:
+        await cur.execute(
+            f"UPDATE telethon_auth_state SET {assignments}, updated_at=? WHERE singleton=1",
+            params,
+        )
+
+
+async def clear_auth_state() -> None:
+    await save_auth_state(
+        status="idle", phone="", phone_code_hash="", pending_session="", error_text=""
+    )
 
 
 def mask_secret(value: str, visible: int = 4) -> str:

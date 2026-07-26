@@ -19,7 +19,10 @@ import aiosqlite
 
 from bot.schema import ensure_database_ready
 
-DATA_DIR = os.getenv("DATA_DIR", "database")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_configured_data_dir = (os.getenv("DATA_DIR") or "database").strip()
+DATA_DIR = (_configured_data_dir if os.path.isabs(_configured_data_dir)
+            else os.path.join(PROJECT_ROOT, _configured_data_dir))
 DB_PATH = os.path.join(DATA_DIR, "database.db")
 
 # Готовим именно ту базу, которую реально использует контейнер.

@@ -1,4 +1,4 @@
-"""Синхронизация каталога участников с Telegram через Telethon."""
+"""Авторизация Telethon и синхронизация каталога участников Telegram."""
 from __future__ import annotations
 
 import asyncio
@@ -6,9 +6,16 @@ import time
 from datetime import datetime, timezone
 
 from bot.database import db
-from bot.telethon_settings import get_telethon_settings
+from bot.telethon_settings import (
+    clear_auth_state,
+    get_auth_state,
+    get_telethon_settings,
+    save_auth_state,
+    save_telethon_settings,
+)
 
 _sync_lock = asyncio.Lock()
+_auth_lock = asyncio.Lock()
 
 
 async def configured() -> bool:
@@ -16,13 +23,128 @@ async def configured() -> bool:
     return bool(settings.get("enabled") and settings.get("api_id") and settings.get("api_hash") and settings.get("session"))
 
 
-def _build_client(settings: dict):
+def _build_client(settings: dict, session_value: str | None = None):
     from telethon import TelegramClient
-    session_value = str(settings.get("session") or "").strip()
-    if settings.get("session_type") == "string":
-        from telethon.sessions import StringSession
-        session_value = StringSession(session_value)
-    return TelegramClient(session_value, int(settings["api_id"]), settings["api_hash"])
+    from telethon.sessions import StringSession
+
+    value = str(session_value if session_value is not None else settings.get("session") or "").strip()
+    return TelegramClient(StringSession(value), int(settings["api_id"]), settings["api_hash"])
+
+
+async def begin_telethon_authorization(phone: str) -> dict:
+    """Отправляет код на номер и сохраняет временную StringSession в общей БД."""
+    settings = await get_telethon_settings()
+    missing = [key for key in ("api_id", "api_hash") if not settings.get(key)]
+    if missing:
+        raise RuntimeError("Сначала сохраните API ID и API Hash")
+    phone = str(phone or "").strip().replace(" ", "")
+    if not phone.startswith("+") or len(phone) < 8:
+        raise RuntimeError("Укажите номер телефона в международном формате, например +491234567890")
+
+    async with _auth_lock:
+        client = _build_client(settings, "")
+        try:
+            await client.connect()
+            sent = await client.send_code_request(phone)
+            pending = client.session.save()
+            await save_auth_state(
+                status="code_sent",
+                phone=phone,
+                phone_code_hash=sent.phone_code_hash,
+                pending_session=pending,
+                error_text="",
+            )
+            await save_telethon_settings({"phone": phone})
+            return {"status": "code_sent", "phone": phone}
+        except Exception as exc:
+            await save_auth_state(status="error", error_text=str(exc)[:1000])
+            raise
+        finally:
+            await client.disconnect()
+
+
+async def confirm_telethon_code(code: str) -> dict:
+    """Подтверждает код; при включённой 2FA переводит процесс на ввод пароля."""
+    from telethon.errors import SessionPasswordNeededError
+
+    settings = await get_telethon_settings()
+    state = await get_auth_state()
+    if state.get("status") != "code_sent":
+        raise RuntimeError("Сначала запросите новый код подтверждения")
+    code = "".join(ch for ch in str(code or "") if ch.isdigit())
+    if not code:
+        raise RuntimeError("Введите код подтверждения Telegram")
+
+    async with _auth_lock:
+        client = _build_client(settings, state.get("pending_session", ""))
+        try:
+            await client.connect()
+            try:
+                await client.sign_in(
+                    phone=state.get("phone", ""),
+                    code=code,
+                    phone_code_hash=state.get("phone_code_hash", ""),
+                )
+            except SessionPasswordNeededError:
+                await save_auth_state(
+                    status="password_needed",
+                    pending_session=client.session.save(),
+                    error_text="",
+                )
+                return {"status": "password_needed"}
+            return await _finish_authorization(client)
+        except Exception as exc:
+            await save_auth_state(error_text=str(exc)[:1000])
+            raise
+        finally:
+            await client.disconnect()
+
+
+async def confirm_telethon_password(password: str) -> dict:
+    settings = await get_telethon_settings()
+    state = await get_auth_state()
+    if state.get("status") != "password_needed":
+        raise RuntimeError("Пароль двухэтапной аутентификации сейчас не запрошен")
+    if not password:
+        raise RuntimeError("Введите пароль двухэтапной аутентификации")
+
+    async with _auth_lock:
+        client = _build_client(settings, state.get("pending_session", ""))
+        try:
+            await client.connect()
+            await client.sign_in(password=password)
+            return await _finish_authorization(client)
+        except Exception as exc:
+            await save_auth_state(error_text=str(exc)[:1000])
+            raise
+        finally:
+            await client.disconnect()
+
+
+async def _finish_authorization(client) -> dict:
+    if not await client.is_user_authorized():
+        raise RuntimeError("Telegram не подтвердил авторизацию сессии")
+    me = await client.get_me()
+    name = " ".join(x for x in (me.first_name, me.last_name) if x).strip()
+    await save_telethon_settings({
+        "session": client.session.save(),
+        "session_type": "string",
+        "phone": getattr(me, "phone", "") or "",
+        "authorized_user_id": str(me.id),
+        "authorized_username": me.username or "",
+        "authorized_name": name,
+        "enabled": "1",
+    })
+    await clear_auth_state()
+    return {"status": "authorized", "user_id": int(me.id), "username": me.username or "", "name": name}
+
+
+async def disconnect_telethon_session() -> None:
+    await save_telethon_settings({
+        "enabled": "0", "auto_sync_enabled": "0", "session": "",
+        "authorized_user_id": "", "authorized_username": "", "authorized_name": "",
+    })
+    await clear_auth_state()
 
 
 async def ensure_sync_schema() -> None:
@@ -56,19 +178,14 @@ async def test_telethon_connection() -> dict:
     settings = await get_telethon_settings()
     missing = [key for key in ("api_id", "api_hash", "session") if not settings.get(key)]
     if missing:
-        raise RuntimeError("Не заполнены обязательные поля: " + ", ".join(missing))
+        raise RuntimeError("Сессия ещё не авторизована через административную панель")
     client = _build_client(settings)
     try:
         await client.connect()
         if not await client.is_user_authorized():
-            raise RuntimeError("Сессия Telethon не авторизована. Сначала создайте авторизованную session-файл или StringSession.")
+            raise RuntimeError("Сессия Telethon больше не авторизована. Выполните подключение заново.")
         me = await client.get_me()
-        return {
-            "authorized": True,
-            "user_id": int(me.id),
-            "username": me.username or "",
-            "name": " ".join(x for x in (me.first_name, me.last_name) if x).strip(),
-        }
+        return {"authorized": True, "user_id": int(me.id), "username": me.username or "", "name": " ".join(x for x in (me.first_name, me.last_name) if x).strip()}
     finally:
         await client.disconnect()
 
@@ -78,20 +195,15 @@ async def sync_chat_members(chat_id: int | None = None) -> dict:
     if not settings.get("enabled"):
         raise RuntimeError("Telethon выключен в административной панели")
     if not all(settings.get(k) for k in ("api_id", "api_hash", "session")):
-        raise RuntimeError('Не заданы API ID, API Hash и сессия Telethon')
+        raise RuntimeError('Telethon ещё не авторизован через административную панель')
     if not chat_id:
-        try:
-            chat_id = int(str(settings.get("default_chat_id") or "").strip())
-        except ValueError:
-            chat_id = 0
-    if not chat_id:
-        raise RuntimeError("Не выбран Telegram-чат")
+        try: chat_id = int(str(settings.get("default_chat_id") or "").strip())
+        except ValueError: chat_id = 0
+    if not chat_id: raise RuntimeError("Не выбран Telegram-чат")
 
     from telethon.tl.types import UserStatusOnline, UserStatusOffline, UserStatusRecently, UserStatusLastWeek, UserStatusLastMonth
-
     async with _sync_lock:
-        await ensure_sync_schema()
-        started=int(time.time())
+        await ensure_sync_schema(); started=int(time.time())
         async with db() as cur:
             await cur.execute('''INSERT INTO member_sync_state(chat_id,last_started_at,status,error_text)
                 VALUES(?,?,'running','') ON CONFLICT(chat_id) DO UPDATE SET
@@ -99,8 +211,7 @@ async def sync_chat_members(chat_id: int | None = None) -> dict:
         client=_build_client(settings)
         try:
             await client.connect()
-            if not await client.is_user_authorized():
-                raise RuntimeError("Сессия Telethon не авторизована")
+            if not await client.is_user_authorized(): raise RuntimeError("Сессия Telethon не авторизована")
             members=[]
             async for user in client.iter_participants(int(chat_id)):
                 status='unknown'; last_seen=''
@@ -115,8 +226,7 @@ async def sync_chat_members(chat_id: int | None = None) -> dict:
             now=int(time.time()); ids={m[0] for m in members}; new=updated=0
             async with db() as cur:
                 for uid,username,name,status,last_seen in members:
-                    await cur.execute('SELECT username,name,telegram_status FROM admin_members WHERE user_id=?',(uid,))
-                    old=await cur.fetchone()
+                    await cur.execute('SELECT username,name,telegram_status FROM admin_members WHERE user_id=?',(uid,)); old=await cur.fetchone()
                     if old is None: new+=1
                     elif (old[0],old[1],old[2]) != (username,name,status): updated+=1
                     await cur.execute('''INSERT INTO admin_members(user_id,username,name,telegram_status,telegram_last_seen_at,telegram_status_checked_at,imported_at,is_chat_member,last_member_sync_at)
@@ -124,37 +234,26 @@ async def sync_chat_members(chat_id: int | None = None) -> dict:
                     telegram_status=excluded.telegram_status,telegram_last_seen_at=excluded.telegram_last_seen_at,
                     telegram_status_checked_at=excluded.telegram_status_checked_at,is_chat_member=1,last_member_sync_at=excluded.last_member_sync_at''',
                     (uid,username,name,status,last_seen,datetime.now().isoformat(timespec='seconds'),now,now))
-                await cur.execute('SELECT user_id FROM admin_members WHERE is_chat_member=1')
-                known={int(r[0]) for r in await cur.fetchall()}; missing=known-ids
-                if missing:
-                    await cur.executemany('UPDATE admin_members SET is_chat_member=0,last_member_sync_at=? WHERE user_id=?',[(now,uid) for uid in missing])
-                await cur.execute('''UPDATE member_sync_state SET last_finished_at=?,status='ok',found_count=?,new_count=?,updated_count=?,missing_count=?,error_text='' WHERE chat_id=?''',
-                    (now,len(members),new,updated,len(missing),int(chat_id)))
+                await cur.execute('SELECT user_id FROM admin_members WHERE is_chat_member=1'); known={int(r[0]) for r in await cur.fetchall()}; missing=known-ids
+                if missing: await cur.executemany('UPDATE admin_members SET is_chat_member=0,last_member_sync_at=? WHERE user_id=?',[(now,uid) for uid in missing])
+                await cur.execute('''UPDATE member_sync_state SET last_finished_at=?,status='ok',found_count=?,new_count=?,updated_count=?,missing_count=?,error_text='' WHERE chat_id=?''',(now,len(members),new,updated,len(missing),int(chat_id)))
             return {'found':len(members),'new':new,'updated':updated,'missing':len(missing),'finished_at':now}
         except Exception as exc:
-            async with db() as cur:
-                await cur.execute("UPDATE member_sync_state SET last_finished_at=?,status='error',error_text=? WHERE chat_id=?",(int(time.time()),str(exc)[:1000],int(chat_id)))
+            async with db() as cur: await cur.execute("UPDATE member_sync_state SET last_finished_at=?,status='error',error_text=? WHERE chat_id=?",(int(time.time()),str(exc)[:1000],int(chat_id)))
             raise
-        finally:
-            await client.disconnect()
+        finally: await client.disconnect()
 
 
 async def telethon_auto_sync_loop() -> None:
-    """Периодически синхронизирует основной чат согласно настройкам панели."""
     while True:
         try:
-            settings = await get_telethon_settings()
-            interval = max(15, int(settings.get("sync_interval_minutes") or 360))
+            settings = await get_telethon_settings(); interval = max(15, int(settings.get("sync_interval_minutes") or 360))
             if settings.get("enabled") and settings.get("auto_sync_enabled"):
                 chat_id = int(str(settings.get("default_chat_id") or "0"))
                 if chat_id:
-                    try:
-                        await sync_chat_members(chat_id)
-                    except Exception as exc:
-                        print(f"Автосинхронизация Telethon завершилась ошибкой: {exc}")
+                    try: await sync_chat_members(chat_id)
+                    except Exception as exc: print(f"Автосинхронизация Telethon завершилась ошибкой: {exc}")
             await asyncio.sleep(interval * 60)
-        except asyncio.CancelledError:
-            raise
+        except asyncio.CancelledError: raise
         except Exception as exc:
-            print(f"Ошибка цикла Telethon: {exc}")
-            await asyncio.sleep(900)
+            print(f"Ошибка цикла Telethon: {exc}"); await asyncio.sleep(900)
