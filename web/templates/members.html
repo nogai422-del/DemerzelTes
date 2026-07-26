@@ -28,8 +28,13 @@
     {% endif %}</div></div>{% endif %}
 {% endblock %}
 {% block content %}
+<section class="member-tabs" aria-label="Списки участников">
+  <a class="member-tab {% if membership_filter == 'current' %}is-active{% endif %}" href="{{ url_for('members.members', chat_id=selected_chat_id, membership='current') }}">Актуальные <strong>{{ stats.current_members }}</strong></a>
+  <a class="member-tab {% if membership_filter == 'inactive' %}is-active{% endif %}" href="{{ url_for('members.members', chat_id=selected_chat_id, membership='inactive') }}">Неактуальные <strong>{{ stats.inactive_members }}</strong></a>
+  <a class="member-tab {% if membership_filter == 'all' %}is-active{% endif %}" href="{{ url_for('members.members', chat_id=selected_chat_id, membership='all') }}">Все <strong>{{ stats.total_members }}</strong></a>
+</section>
 <section class="member-stats-grid" aria-label="Сводка участников">
-  <article class="member-stat"><span>Всего в каталоге</span><strong>{{ stats.total_members }}</strong><small>Импортированные профили</small></article>
+  <article class="member-stat"><span>Актуальные</span><strong>{{ stats.current_members }}</strong><small>Состоят в чате</small></article>
   <article class="member-stat"><span>До /bv</span><strong>{{ stats.stages.new }}</strong><small>Анкета ещё не выдана</small></article>
   <article class="member-stat member-stat-accent"><span>Заполняют</span><strong>{{ stats.stages.filling }}</strong><small>Этап между /bv и /save</small></article>
   <article class="member-stat"><span>Анкета сохранена</span><strong>{{ stats.stages.saved }}</strong><small>Прошли /save</small></article>
@@ -43,6 +48,21 @@
     <div class="form-group"><label>Чат</label><select name="chat_id">
       {% for id in chat_ids %}<option value="{{ id }}" {% if id == selected_chat_id %}selected{% endif %}>{{ id }}</option>{% else %}<option value="{{ selected_chat_id }}">{{ selected_chat_id }}</option>{% endfor %}
     </select></div>
+    <div class="form-group"><label>Список</label><select name="membership">
+      <option value="current" {% if membership_filter=='current' %}selected{% endif %}>Актуальные</option>
+      <option value="inactive" {% if membership_filter=='inactive' %}selected{% endif %}>Неактуальные</option>
+      <option value="all" {% if membership_filter=='all' %}selected{% endif %}>Все участники</option>
+    </select></div>
+    <div class="form-group"><label>Активность</label><select name="period_mode">
+      <option value="" {% if not period_mode %}selected{% endif %}>За всё время</option>
+      <option value="within" {% if period_mode=='within' %}selected{% endif %}>Были активны за</option>
+      <option value="older" {% if period_mode=='older' %}selected{% endif %}>Неактивны более</option>
+    </select></div>
+    <div class="form-group"><label>Количество</label><input type="number" name="period_value" min="1" max="3650" value="{{ period_value or '' }}" placeholder="1, 2, 3…"></div>
+    <div class="form-group"><label>Период</label><select name="period_unit">
+      <option value="days" {% if period_unit=='days' %}selected{% endif %}>дней</option>
+      <option value="months" {% if period_unit=='months' %}selected{% endif %}>месяцев</option>
+    </select></div>
     <div class="form-group"><label>Этап анкеты</label><select name="stage">
       <option value="">Все этапы</option><option value="new" {% if stage_filter=='new' %}selected{% endif %}>До /bv</option><option value="filling" {% if stage_filter=='filling' %}selected{% endif %}>Заполняет</option><option value="saved" {% if stage_filter=='saved' %}selected{% endif %}>Сохранена</option>
     </select></div>
@@ -52,12 +72,12 @@
       <option value="activity" {% if sort=='activity' %}selected{% endif %}>По активности</option><option value="name" {% if sort=='name' %}selected{% endif %}>По имени</option><option value="id" {% if sort=='id' %}selected{% endif %}>По ID</option><option value="status" {% if sort=='status' %}selected{% endif %}>По статусу</option><option value="stage" {% if sort=='stage' %}selected{% endif %}>По этапу анкеты</option>
     </select></div>
     <div class="form-group"><label>На странице</label><select name="per_page">{% for size in page_sizes %}<option value="{{ size }}" {% if per_page==size %}selected{% endif %}>{{ size }}</option>{% endfor %}</select></div>
-    <div class="member-filter-actions"><button type="submit">Применить</button><a class="button button-ghost" href="{{ url_for('members.members', chat_id=selected_chat_id) }}">Сбросить</a></div>
+    <div class="member-filter-actions"><button type="submit">Применить</button><a class="button button-ghost" href="{{ url_for('members.members', chat_id=selected_chat_id, membership='current') }}">Сбросить</a></div>
   </form>
 </section>
 
 <section class="section-card">
-  <div class="section-header"><div><h2>Каталог участников</h2><p>Найдено {{ total_filtered }}. Донаты и этапы показаны для чата {{ selected_chat_id }}.</p></div><span class="section-icon">☰</span></div>
+  <div class="section-header"><div><h2>{% if membership_filter == 'inactive' %}Неактуальные участники{% elif membership_filter == 'all' %}Все участники{% else %}Актуальные участники{% endif %}</h2><p>Найдено {{ total_filtered }}. Неактуальные профили хранятся отдельно, но их история и статистика не удаляются.</p></div><span class="section-icon">☰</span></div>
   <div class="table-wrap member-table-wrap">
     <table class="admin-table member-table">
       <thead><tr><th>Участник</th><th>Telegram ID</th><th>Этап анкеты</th><th>Активность</th><th>Донаты</th><th>Статус</th><th></th></tr></thead>
@@ -82,7 +102,7 @@
               {% for grant in m.grants %}<span class="donation-badge" title="До {{ grant.valid_until_text }}{% if grant.daily_limit %}, лимит {{ grant.daily_limit }}{% endif %}">{{ grant.title }} · {{ grant.valid_until_text }}</span>{% else %}<span class="table-empty">Нет</span>{% endfor %}
             </div>
           </td>
-          <td><span class="telegram-status">{{ m.telegram_status or '—' }}</span>{% if m.telegram_last_seen_at %}<small class="table-subtext">{{ m.telegram_last_seen_at }}</small>{% endif %}</td>
+          <td>{% if not m.is_chat_member %}<span class="stage-badge member-inactive-badge">Не в чате</span>{% endif %}<span class="telegram-status">{{ m.telegram_status or '—' }}</span>{% if m.telegram_last_seen_at %}<small class="table-subtext">{{ m.telegram_last_seen_at }}</small>{% endif %}</td>
           <td class="member-actions"><button type="button" class="button button-small" data-open-grant data-user-id="{{ m.user_id }}" data-user-name="{{ m.name or ('@' ~ m.username if m.username else m.user_id) }}">Выдать</button></td>
         </tr>
       {% else %}
@@ -94,9 +114,9 @@
 
   {% if total_pages > 1 %}
   <nav class="pagination" aria-label="Страницы">
-    {% if page > 1 %}<a class="button button-ghost button-small" href="{{ url_for('members.members', q=query, chat_id=selected_chat_id, stage=stage_filter, status=status_filter, donation=donation_filter, sort=sort, per_page=per_page, page=page-1) }}">← Назад</a>{% endif %}
+    {% if page > 1 %}<a class="button button-ghost button-small" href="{{ url_for('members.members', q=query, chat_id=selected_chat_id, stage=stage_filter, status=status_filter, donation=donation_filter, membership=membership_filter, period_mode=period_mode, period_value=period_value, period_unit=period_unit, sort=sort, per_page=per_page, page=page-1) }}">← Назад</a>{% endif %}
     <span>Страница <strong>{{ page }}</strong> из {{ total_pages }}</span>
-    {% if page < total_pages %}<a class="button button-ghost button-small" href="{{ url_for('members.members', q=query, chat_id=selected_chat_id, stage=stage_filter, status=status_filter, donation=donation_filter, sort=sort, per_page=per_page, page=page+1) }}">Вперёд →</a>{% endif %}
+    {% if page < total_pages %}<a class="button button-ghost button-small" href="{{ url_for('members.members', q=query, chat_id=selected_chat_id, stage=stage_filter, status=status_filter, donation=donation_filter, membership=membership_filter, period_mode=period_mode, period_value=period_value, period_unit=period_unit, sort=sort, per_page=per_page, page=page+1) }}">Вперёд →</a>{% endif %}
   </nav>
   {% endif %}
 </section>
@@ -117,7 +137,7 @@
 <dialog class="grant-dialog" data-grant-dialog>
   <form method="post" class="grant-dialog-card">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="grant"><input type="hidden" name="user_id" data-grant-user-id>
-    <input type="hidden" name="return_chat_id" value="{{ selected_chat_id }}"><input type="hidden" name="return_q" value="{{ query }}"><input type="hidden" name="return_stage" value="{{ stage_filter }}"><input type="hidden" name="return_status" value="{{ status_filter }}"><input type="hidden" name="return_donation" value="{{ donation_filter }}"><input type="hidden" name="return_sort" value="{{ sort }}">
+    <input type="hidden" name="return_chat_id" value="{{ selected_chat_id }}"><input type="hidden" name="return_q" value="{{ query }}"><input type="hidden" name="return_stage" value="{{ stage_filter }}"><input type="hidden" name="return_status" value="{{ status_filter }}"><input type="hidden" name="return_donation" value="{{ donation_filter }}"><input type="hidden" name="return_membership" value="{{ membership_filter }}"><input type="hidden" name="return_period_mode" value="{{ period_mode }}"><input type="hidden" name="return_period_value" value="{{ period_value }}"><input type="hidden" name="return_period_unit" value="{{ period_unit }}"><input type="hidden" name="return_sort" value="{{ sort }}">
     <div class="grant-dialog-head"><div><span class="page-kicker">Быстрая выдача</span><h2>Выдать донат</h2><p data-grant-user-label>Укажите Telegram ID участника</p></div><button type="button" class="icon-button" data-close-grant aria-label="Закрыть">×</button></div>
     <div class="form-grid">
       <div class="form-group"><label>Telegram ID</label><input type="number" data-grant-user-visible required></div>

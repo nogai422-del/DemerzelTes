@@ -18,7 +18,7 @@ from flask import Blueprint, redirect, render_template, request, session
 from bot.database import DB_PATH, db
 from bot.donations import CATEGORY_TITLES, ensure_donation_schema, extend_donation_grant
 from bot.schema import ensure_database_ready
-from bot.telethon_sync import configured as telethon_configured, get_sync_state, sync_chat_members
+from bot.telethon_sync import configured as telethon_configured, ensure_sync_schema, get_sync_state, sync_chat_members
 from env_config import require_env
 
 members_bp = Blueprint("members", __name__)
@@ -55,6 +55,10 @@ def _members_redirect(**updates):
         "stage": request.form.get("return_stage") or request.args.get("stage") or "",
         "status": request.form.get("return_status") or request.args.get("status") or "",
         "donation": request.form.get("return_donation") or request.args.get("donation") or "",
+        "membership": request.form.get("return_membership") or request.args.get("membership") or "current",
+        "period_mode": request.form.get("return_period_mode") or request.args.get("period_mode") or "",
+        "period_value": request.form.get("return_period_value") or request.args.get("period_value") or "",
+        "period_unit": request.form.get("return_period_unit") or request.args.get("period_unit") or "days",
         "sort": request.form.get("return_sort") or request.args.get("sort") or "activity",
     }
     params.update({key: value for key, value in updates.items() if value is not None})
@@ -150,6 +154,7 @@ async def members():
 
     ensure_database_ready(DB_PATH)
     await ensure_donation_schema()
+    await ensure_sync_schema()
     session.setdefault("csrf_token", secrets.token_urlsafe(32))
 
     notice = request.args.get("notice", "")
@@ -285,6 +290,16 @@ async def members():
     status_filter = str(request.args.get("status") or "").strip()
     stage_filter = str(request.args.get("stage") or "").strip()
     donation_filter = str(request.args.get("donation") or "").strip()
+    membership_filter = str(request.args.get("membership") or "current").strip()
+    if membership_filter not in {"current", "inactive", "all"}:
+        membership_filter = "current"
+    period_mode = str(request.args.get("period_mode") or "").strip()
+    if period_mode not in {"", "within", "older"}:
+        period_mode = ""
+    period_value = max(0, min(3650, _to_int(request.args.get("period_value"), 0)))
+    period_unit = str(request.args.get("period_unit") or "days").strip()
+    if period_unit not in {"days", "months"}:
+        period_unit = "days"
     sort = str(request.args.get("sort") or "activity")
     if sort not in SORT_OPTIONS:
         sort = "activity"
@@ -324,6 +339,18 @@ async def members():
     base_params: list = [selected_chat_id, selected_chat_id, selected_chat_id]
     where_parts = []
     where_params: list = []
+    if membership_filter == "current":
+        where_parts.append("COALESCE(am.is_chat_member, 1) = 1")
+    elif membership_filter == "inactive":
+        where_parts.append("COALESCE(am.is_chat_member, 1) = 0")
+    if period_mode and period_value > 0:
+        modifier = f"-{period_value} {period_unit}"
+        activity_epoch_sql = "COALESCE(NULLIF(CAST(strftime('%s', am.telegram_last_seen_at) AS INTEGER), 0), NULLIF(CAST(strftime('%s', am.telegram_status_checked_at) AS INTEGER), 0), am.imported_at, 0)"
+        if period_mode == "within":
+            where_parts.append(f"{activity_epoch_sql} >= CAST(strftime('%s','now', ?) AS INTEGER)")
+        else:
+            where_parts.append(f"{activity_epoch_sql} < CAST(strftime('%s','now', ?) AS INTEGER)")
+        where_params.append(modifier)
     if query:
         like = f"%{query}%"
         where_parts.append("(CAST(am.user_id AS TEXT) LIKE ? OR am.username LIKE ? OR am.name LIKE ?)")
@@ -358,6 +385,8 @@ async def members():
                        COALESCE(cu.chat_messages, am.message_count, 0) AS message_count,
                        am.telegram_status, am.telegram_last_seen_at,
                        am.telegram_status_checked_at, am.imported_at,
+                       COALESCE(am.is_chat_member, 1) AS is_chat_member,
+                       COALESCE(am.last_member_sync_at, 0) AS last_member_sync_at,
                        COALESCE(cu.stage_code, 0) AS stage_code,
                        {stage_sql} AS form_stage,
                        dg.grants
@@ -375,6 +404,10 @@ async def members():
 
         await cur.execute("SELECT COUNT(*) FROM admin_members")
         total_members = int((await cur.fetchone())[0])
+        await cur.execute("SELECT COUNT(*) FROM admin_members WHERE COALESCE(is_chat_member,1)=1")
+        current_members = int((await cur.fetchone())[0])
+        await cur.execute("SELECT COUNT(*) FROM admin_members WHERE COALESCE(is_chat_member,1)=0")
+        inactive_members = int((await cur.fetchone())[0])
         await cur.execute(
             """SELECT COUNT(*) FROM donation_grants
                WHERE chat_id=? AND valid_until > CAST(strftime('%s','now') AS INTEGER)""",
@@ -395,6 +428,7 @@ async def members():
                    FROM admin_members am
                    LEFT JOIN chat_users cu ON cu.user_id=am.user_id AND cu.chat_id=?
                    LEFT JOIN bv_messages bv ON bv.target_user_id=am.user_id AND bv.chat_id=?
+                   WHERE COALESCE(am.is_chat_member,1)=1
                    GROUP BY am.user_id
                )""",
             (selected_chat_id, selected_chat_id),
@@ -425,6 +459,10 @@ async def members():
         status_filter=status_filter,
         stage_filter=stage_filter,
         donation_filter=donation_filter,
+        membership_filter=membership_filter,
+        period_mode=period_mode,
+        period_value=period_value,
+        period_unit=period_unit,
         status_options=status_options,
         sort=sort,
         page=page,
@@ -434,6 +472,8 @@ async def members():
         total_filtered=total_filtered,
         stats={
             "total_members": total_members,
+            "current_members": current_members,
+            "inactive_members": inactive_members,
             "active_donations": active_donations,
             "stages": stage_counts,
         },
