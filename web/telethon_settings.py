@@ -1,7 +1,9 @@
 """Раздел настройки и авторизации Telethon в административной панели."""
 from __future__ import annotations
 
+import base64
 import hmac
+import io
 import secrets
 from flask import Blueprint, redirect, render_template, request, session
 
@@ -12,7 +14,11 @@ from bot.telethon_settings import (
     save_telethon_settings,
 )
 from bot.telethon_sync import (
+    begin_qr_authorization,
     begin_telethon_authorization,
+    check_qr_authorization,
+    get_active_qr_url,
+    refresh_qr_authorization,
     confirm_telethon_code,
     confirm_telethon_password,
     disconnect_telethon_session,
@@ -68,6 +74,41 @@ async def telethon_settings():
                 values["api_hash"] = api_hash
             await save_telethon_settings(values)
             return redirect("/telethon_settings?notice=saved")
+
+
+        if action == "start_qr":
+            try:
+                values = {
+                    "api_id": request.form.get("api_id", "").strip(),
+                    "session_type": "string",
+                }
+                api_hash = request.form.get("api_hash", "").strip()
+                if api_hash:
+                    values["api_hash"] = api_hash
+                await save_telethon_settings(values)
+                await begin_qr_authorization()
+                return redirect("/telethon_settings?notice=qr_created")
+            except Exception as exc:
+                _set_error(exc)
+                return redirect("/telethon_settings?error=start_qr")
+
+        if action == "refresh_qr":
+            try:
+                await refresh_qr_authorization()
+                return redirect("/telethon_settings?notice=qr_created")
+            except Exception as exc:
+                _set_error(exc)
+                return redirect("/telethon_settings?error=refresh_qr")
+
+        if action == "check_qr":
+            try:
+                result = await check_qr_authorization()
+                if result.get("status") == "waiting":
+                    return redirect("/telethon_settings?notice=qr_waiting")
+                return redirect(f"/telethon_settings?notice=authorized_{result['user_id']}")
+            except Exception as exc:
+                _set_error(exc)
+                return redirect("/telethon_settings?error=check_qr")
 
         if action == "request_code":
             try:
@@ -136,6 +177,17 @@ async def telethon_settings():
     except ValueError:
         chat_id = 0
     sync_state = await get_sync_state(chat_id) if chat_id else {}
+    qr_data_uri = ""
+    qr_url = get_active_qr_url()
+    if qr_url:
+        try:
+            import qrcode
+            image = qrcode.make(qr_url)
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            qr_data_uri = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        except Exception as exc:
+            session["telethon_last_error"] = f"Не удалось сформировать QR: {exc}"[:700]
     return render_template(
         "telethon_settings.html",
         settings=current,
@@ -147,4 +199,5 @@ async def telethon_settings():
         error=error,
         last_error=session.pop("telethon_last_error", ""),
         csrf_token=session["csrf_token"],
+        qr_data_uri=qr_data_uri,
     )

@@ -8,3 +8,4 @@ beautifulsoup4
 Pillow
 
 telethon>=1.40.0
+qrcode[pil]>=7.4.2

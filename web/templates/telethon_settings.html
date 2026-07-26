@@ -6,6 +6,8 @@
 
 {% block notices %}
   {% if notice == 'saved' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Параметры будут использованы при следующей проверке или синхронизации.</div></div>{% endif %}
+  {% if notice == 'qr_created' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>QR-код создан</strong>Откройте Telegram → Настройки → Устройства → Подключить устройство и отсканируйте код.</div></div>{% endif %}
+  {% if notice == 'qr_waiting' %}<div class="notice notice-success"><span class="notice-icon">…</span><div><strong>QR ещё не подтверждён</strong>Отсканируйте код в официальном приложении Telegram, подтвердите вход и нажмите «Проверить подтверждение».</div></div>{% endif %}
   {% if notice == 'code_sent' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Запрос кода принят</strong>Проверьте служебный чат Telegram на всех устройствах. Код обычно приходит в приложение, а не по SMS.</div></div>{% endif %}
   {% if notice == 'password_needed' %}<div class="notice notice-success"><span class="notice-icon">→</span><div><strong>Требуется пароль 2FA</strong>Введите пароль двухэтапной аутентификации Telegram.</div></div>{% endif %}
   {% if notice.startswith('authorized_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Telethon подключён</strong>Сессия успешно авторизована и сохранена в основной базе. Telegram ID: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
@@ -31,6 +33,32 @@
 
   <section class="section-card">
     <div class="section-header"><div><h2>Авторизация аккаунта</h2><p>Сессия хранится как StringSession в основной базе Demerzel. Файл <code>.session</code> больше не используется.</p></div><span class="section-icon">◉</span></div>
+
+    {% if not settings.session %}
+      <div class="info-panel">
+        <strong>Рекомендуемый способ: вход по QR-коду</strong>
+        <span>Он не зависит от доставки SMS или служебного кода. В Telegram откройте: Настройки → Устройства → Подключить устройство.</span>
+      </div>
+      {% if qr_data_uri %}
+        <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;margin:18px 0;">
+          <div style="background:#fff;padding:14px;border-radius:16px;line-height:0;"><img src="{{ qr_data_uri }}" alt="QR-код авторизации Telegram" width="260" height="260" style="display:block;max-width:100%;height:auto;"></div>
+          <div class="info-panel" style="flex:1;min-width:260px;">
+            <strong>Отсканируйте QR-код</strong>
+            <span>1. Откройте официальное приложение Telegram на телефоне.</span>
+            <span>2. Перейдите в Настройки → Устройства → Подключить устройство.</span>
+            <span>3. Отсканируйте код и подтвердите вход.</span>
+            <span>4. Нажмите «Проверить подтверждение».</span>
+          </div>
+        </div>
+        <div class="action-bar">
+          <button class="button button-primary" type="submit" name="action" value="check_qr">Проверить подтверждение</button>
+          <button class="button" type="submit" name="action" value="refresh_qr">Обновить QR-код</button>
+        </div>
+      {% else %}
+        <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="start_qr">Создать QR-код для входа</button></div>
+      {% endif %}
+      <div style="height:18px"></div>
+    {% endif %}
 
     {% if settings.session %}
       <div class="info-panel">

@@ -16,6 +16,7 @@ from bot.telethon_settings import (
 
 _sync_lock = asyncio.Lock()
 _auth_lock = asyncio.Lock()
+_qr_auth = {"client": None, "qr": None, "created_at": 0.0}
 
 
 async def configured() -> bool:
@@ -29,6 +30,73 @@ def _build_client(settings: dict, session_value: str | None = None):
 
     value = str(session_value if session_value is not None else settings.get("session") or "").strip()
     return TelegramClient(StringSession(value), int(settings["api_id"]), settings["api_hash"])
+
+
+async def begin_qr_authorization() -> dict:
+    """Создаёт QR-ссылку для входа через официальное приложение Telegram."""
+    settings = await get_telethon_settings()
+    missing = [key for key in ("api_id", "api_hash") if not settings.get(key)]
+    if missing:
+        raise RuntimeError("Сначала сохраните API ID и API Hash")
+
+    async with _auth_lock:
+        await cancel_qr_authorization()
+        client = _build_client(settings, "")
+        try:
+            await client.connect()
+            qr = await client.qr_login()
+            _qr_auth.update({"client": client, "qr": qr, "created_at": time.time()})
+            await save_auth_state(status="qr_waiting", error_text="", pending_session=client.session.save())
+            return {"status": "qr_waiting", "url": qr.url}
+        except Exception:
+            await client.disconnect()
+            raise
+
+
+async def refresh_qr_authorization() -> dict:
+    qr = _qr_auth.get("qr")
+    client = _qr_auth.get("client")
+    if not qr or not client:
+        return await begin_qr_authorization()
+    async with _auth_lock:
+        await qr.recreate()
+        _qr_auth["created_at"] = time.time()
+        await save_auth_state(status="qr_waiting", error_text="")
+        return {"status": "qr_waiting", "url": qr.url}
+
+
+async def check_qr_authorization() -> dict:
+    """Проверяет, был ли QR подтверждён в Telegram."""
+    async with _auth_lock:
+        qr = _qr_auth.get("qr")
+        client = _qr_auth.get("client")
+        if not qr or not client:
+            raise RuntimeError("QR-сессия не найдена. Создайте новый QR-код")
+        try:
+            await qr.wait(timeout=3)
+            result = await _finish_authorization(client)
+            _qr_auth.update({"client": None, "qr": None, "created_at": 0.0})
+            return result
+        except asyncio.TimeoutError:
+            return {"status": "waiting"}
+        except Exception as exc:
+            await save_auth_state(error_text=str(exc)[:1000])
+            raise
+
+
+async def cancel_qr_authorization() -> None:
+    client = _qr_auth.get("client")
+    _qr_auth.update({"client": None, "qr": None, "created_at": 0.0})
+    if client is not None:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+
+def get_active_qr_url() -> str:
+    qr = _qr_auth.get("qr")
+    return str(getattr(qr, "url", "") or "")
 
 
 async def begin_telethon_authorization(phone: str) -> dict:
