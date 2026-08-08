@@ -10,6 +10,7 @@ from bot.database import db
 from bot.utils import (
     save_timed_message, get_old_messages, update_old_message, get_full_name,
     is_in_chat_member, safe_delete, is_command_admin, resolve_bot_image_path,
+    normalize_telegram_button_url,
 )
 from bot.handlers.moderation import is_user_muted, send_restriction_warning
 from bot.warning_state import clear_warning, mark_form_saved, mark_form_started
@@ -17,6 +18,7 @@ from env_config import require_int_env
 
 import asyncio
 import html
+import os
 import time
 
 _bv_locks: dict[tuple[int, int], asyncio.Lock] = {}
@@ -383,13 +385,15 @@ async def send_stats(message: Message):
             stats_row = await cur.fetchone()
 
         if stats_row:
-            current_score, current_level = stats_row
+            current_score = int(stats_row[0] or 0)
+            current_level = int(stats_row[1] or 0)
         else:
             current_score, current_level = 0, 0
 
         full_name = await get_full_name(message.from_user)
         safe_full_name = html.escape(full_name)
         user_name_link = f'<a href="tg://user?id={user_id}">{safe_full_name}</a>'
+        sent = None
 
         # Отдельный текст для пользователей, у которых уровень еще не определен.
         if current_level == 0:
@@ -403,7 +407,6 @@ async def send_stats(message: Message):
                 parse_mode="HTML",
                 wait=True,
             )
-
         else:
             # Для ненулевого уровня подгружаем визуал и кнопку из таблицы levels.
             async with db() as cur:
@@ -417,9 +420,22 @@ async def send_stats(message: Message):
                 )
                 level_data = await cur.fetchone()
 
-            if level_data:
+            if not level_data:
+                sent = await bot_answer(
+                    message,
+                    "Произошла ошибка: данные уровня не найдены.",
+                    wait=True,
+                )
+            else:
                 rank_name, image_path, button_text, button_url = level_data
+                safe_rank_name = html.escape((rank_name or "").strip())
+                caption = (
+                    f"{user_name_link}, ваше текущее воплощение: {safe_rank_name}\n\n"
+                    f"Количество очков: {current_score}"
+                )
 
+                button_text = (button_text or "").strip()
+                button_url = normalize_telegram_button_url(button_url)
                 keyboard = (
                     InlineKeyboardMarkup(
                         inline_keyboard=[[InlineKeyboardButton(text=button_text, url=button_url)]]
@@ -428,32 +444,37 @@ async def send_stats(message: Message):
                     else None
                 )
 
-                photo = FSInputFile(resolve_bot_image_path(f"bot/images/{image_path}"))
+                image_full_path = resolve_bot_image_path(f"bot/images/{image_path or ''}")
 
-                sent = await bot_send_photo(
-                    message,
-                    photo,
-                    caption=(
-                        f"{user_name_link}, ваше текущее воплощение: {rank_name}\n\n"
-                        f"Количество очков: {current_score}"
-                    ),
-                    parse_mode="HTML",
-                    reply_markup=keyboard,
-                    wait=True,
-                )
-            else:
-                # Защита от неконсистентных данных: уровень есть, а записи в levels нет.
-                sent = await bot_answer(
-                    message,
-                    "Произошла ошибка: данные уровня не найдены.",
-                    wait=True,
-                )
+                # Сначала пробуем фото; при любой ошибке/отсутствии файла — текстовый fallback.
+                if image_full_path and os.path.isfile(image_full_path):
+                    try:
+                        sent = await bot_send_photo(
+                            message,
+                            FSInputFile(image_full_path),
+                            caption=caption,
+                            parse_mode="HTML",
+                            reply_markup=keyboard,
+                            wait=True,
+                        )
+                    except Exception as photo_error:
+                        print(f"Ошибка /stats (photo): {photo_error}")
+                        sent = None
+
+                if not sent:
+                    sent = await bot_answer(
+                        message,
+                        caption,
+                        parse_mode="HTML",
+                        reply_markup=keyboard,
+                        wait=True,
+                    )
 
         if sent:
             await save_timed_message(chat_id, sent.message_id)
 
     except Exception as e:
-        print("Ошибка /stats:", e)
+        print(f"Ошибка /stats: {e}")
 
 
 # Показывает админскую статистику по таблицам и активностям.
