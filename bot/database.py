@@ -17,17 +17,26 @@ from contextlib import asynccontextmanager
 
 import aiosqlite
 
-DATA_DIR = os.getenv("DATA_DIR", "database")
+from bot.schema import ensure_database_ready
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_configured_data_dir = (os.getenv("DATA_DIR") or "database").strip()
+DATA_DIR = (_configured_data_dir if os.path.isabs(_configured_data_dir)
+            else os.path.join(PROJECT_ROOT, _configured_data_dir))
 DB_PATH = os.path.join(DATA_DIR, "database.db")
+
+# Готовим именно ту базу, которую реально использует контейнер.
+ensure_database_ready(DB_PATH)
 
 
 # Открывает новое подключение SQLite и применяет PRAGMA-настройки.
 async def _open_conn() -> aiosqlite.Connection:
     os.makedirs(DATA_DIR, exist_ok=True)
+    ensure_database_ready(DB_PATH)
     conn = await aiosqlite.connect(DB_PATH)
     conn.row_factory = aiosqlite.Row
     await conn.execute("PRAGMA journal_mode=WAL;")
-    await conn.execute("PRAGMA busy_timeout=5000;")
+    await conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 

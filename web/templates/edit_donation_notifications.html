@@ -7,14 +7,40 @@
 {% block notices %}
   {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки донатов сохранены</strong>Лимиты и шаблоны обновлены.</div></div>{% endif %}
   {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+  {% if image_error == "1" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Картинка не сохранена</strong>Файл повреждён, слишком большой или имеет неподдерживаемый формат. Текстовые уведомления продолжают работать.</div></div>{% endif %}
 {% endblock %}
 {% block content %}
 <div class="info-panel">
-  <p>Пакеты короче 28 дней получают только сообщение об истечении. Для пакетов от 28 дней дополнительно отправляется предупреждение за 3 дня.</p>
+  <p>Короткие пакеты получают сообщение об истечении. Для долгих пакетов можно включить отдельное предупреждение за 2 или 3 дня до завершения.</p>
   <p>Подстановки: <code>{user}</code>, <code>{full_name}</code>, <code>{user_id}</code>, <code>{category}</code>, <code>{valid_until}</code>, <code>{days_left}</code>, <code>{limit}</code>, <code>{used_today}</code>.</p>
 </div>
 <form method="POST" enctype="multipart/form-data">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <section class="section-card">
+    <div class="section-header"><div><h2>Предупреждение о завершении долгих донатов</h2><p>Настройка отдельного оповещения до фактического окончания пакета.</p></div><span class="section-icon">!</span></div>
+    <label class="setting-toggle">
+      <input type="checkbox" name="expiry_settings[enabled]" value="1" {% if expiry_settings.get('enabled', true) %}checked{% endif %}>
+      <span class="setting-toggle-copy">
+        <strong>Предупреждать об окончании долгого доната</strong>
+        <small>Уведомление отправляется один раз, а сообщение об окончательном истечении остаётся включённым для всех пакетов.</small>
+      </span>
+    </label>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Длительный пакет — от, дней</label>
+        <input type="number" min="28" max="3650" name="expiry_settings[min_package_days]" value="{{ expiry_settings.get('min_package_days', 28) }}" required>
+        <span class="field-help">По задаче значение по умолчанию — 28 дней. Порог можно увеличить.</span>
+      </div>
+      <div class="form-group">
+        <label>Предупредить за, дней</label>
+        <select name="expiry_settings[notice_days]" required>
+          <option value="2" {% if expiry_settings.get('notice_days', 3) == 2 %}selected{% endif %}>2 дня</option>
+          <option value="3" {% if expiry_settings.get('notice_days', 3) == 3 %}selected{% endif %}>3 дня</option>
+        </select>
+        <span class="field-help">Если бот был перезапущен внутри окна предупреждения, он отправит уведомление при ближайшей проверке.</span>
+      </div>
+    </div>
+  </section>
   <section class="section-card">
     <div class="section-header"><div><h2>Лимиты по умолчанию</h2><p>Используются для старого формата команд и ранее выданных пакетов. В новом формате лимит задаётся в команде.</p></div><span class="section-icon">#</span></div>
     <div class="form-grid cols-3">
@@ -54,8 +80,8 @@
               {% if item.image_path %}{% set filename = item.image_path.split('/')[-1] %}<img class="preview" src="{{ url_for('image.serve_image') }}?type=donation&img={{ filename }}" alt="{{ item.event_title }}">{% else %}<img class="preview" src="" alt="" style="display:none;">{% endif %}
               <div class="form-group" style="flex:1; min-width:220px;">
                 {% if item.image_path %}<label style="font-weight:500;"><input type="checkbox" name="{{ prefix }}[remove_image]" value="1"> Удалить текущее изображение</label>{% endif %}
-                <input class="upload-input" type="file" name="{{ prefix }}[upload]" accept=".jpg,.jpeg,.png,.gif">
-              </div>
+                <input class="upload-input" type="file" name="{{ prefix }}[upload]" accept=".jpg,.jpeg,.png,.gif,.webp">
+              <span class="field-help">Файл проверяется и подготавливается для Telegram. Если медиа не отправится, бот всё равно отправит текст.</span></div>
             </div></div>
             <div class="form-group"><label>Первая кнопка</label><input type="text" name="{{ prefix }}[button1_text]" value="{{ item.button1_text or '' }}" placeholder="Текст кнопки"></div>
             <div class="form-group"><label>URL первой кнопки</label><input type="text" name="{{ prefix }}[button1_url]" value="{{ item.button1_url or '' }}" placeholder="https://"></div>

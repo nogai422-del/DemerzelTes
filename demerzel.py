@@ -32,6 +32,9 @@ def _log_env_status() -> None:
 
 _log_env_status()
 
+from bot.legacy_assets import restore_legacy_assets
+restore_legacy_assets()
+
 from bot.database import close_db
 from bot.main import main as bot_main
 from bot.memory_monitor import memory_monitor_loop

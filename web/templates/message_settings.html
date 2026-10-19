@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Сообщения и команды — Demerzel Control{% endblock %}
+{% block kicker %}Конструктор сообщений{% endblock %}
+{% block page_title %}Сообщения и команды{% endblock %}
+{% block page_description %}Настройте текст, фотографии, GIF, кнопки и поведение команд без изменения исходного кода.{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Новые параметры будут применены при следующем вызове команды.</div></div>{% endif %}
+  {% if csrf == '0' %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
+{% block content %}
+<form method="POST" enctype="multipart/form-data" class="settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="settings-tabs" data-tabs>
+    <div class="tab-list" role="tablist">
+      <button type="button" class="tab-button active" data-tab-target="viewd">/viewd</button>
+      <button type="button" class="tab-button" data-tab-target="viewmd">/viewmd</button>
+      <button type="button" class="tab-button" data-tab-target="telegram">Telegram</button>
+      <button type="button" class="tab-button" data-tab-target="variables">Переменные</button>
+    </div>
+
+    {% for key in ['viewd', 'viewmd'] %}
+    {% set item = templates[key] %}
+    <section class="tab-panel {% if key == 'viewd' %}active{% endif %}" data-tab-panel="{{ key }}">
+      <div class="section-card">
+        <div class="section-header"><div><h2>{{ item.title }}</h2><p>Полная настройка ответа команды.</p></div><span class="section-icon">⌘</span></div>
+        <div class="form-grid">
+          <div class="form-group switch-row">
+            <label>Команда включена <span class="help-tip" tabindex="0" data-tooltip="Если выключить, бот будет молча игнорировать эту команду.">?</span></label>
+            <label class="switch"><input type="checkbox" name="template[{{ key }}][enabled]" value="1" {% if item.enabled %}checked{% endif %}><span></span></label>
+          </div>
+          <div class="form-group">
+            <label>Удалить сообщение через, сек. <span class="help-tip" tabindex="0" data-tooltip="0 — не удалять. Допустимый диапазон: от 0 до 86400 секунд.">?</span></label>
+            <input type="number" min="0" max="86400" name="template[{{ key }}][delete_seconds]" value="{{ item.delete_seconds }}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Шаблон сообщения <span class="help-tip" tabindex="0" data-tooltip="Поддерживается HTML Telegram и переменные из вкладки «Переменные». Поле {donation_lines} выводит список активных донатов.">?</span></label>
+          <textarea rows="8" name="template[{{ key }}][message]" required>{{ item.message }}</textarea>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Текст при отсутствии донатов <span class="help-tip" tabindex="0" data-tooltip="Подставляется внутрь {donation_lines}, когда у пользователя нет активных донатов и бессрочного уровня.">?</span></label>
+            <textarea rows="3" name="template[{{ key }}][empty_text]">{{ item.empty_text }}</textarea>
+          </div>
+          <div class="form-group">
+            <label>Подсказка по использованию <span class="help-tip" tabindex="0" data-tooltip="Используется только для /viewmd, когда администратор не указал пользователя. Для /viewd поле можно оставить пустым.">?</span></label>
+            <textarea rows="3" name="template[{{ key }}][usage_text]">{{ item.usage_text }}</textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-header"><div><h2>Медиа</h2><p>Фото или GIF будут отправлены вместе с подписью и кнопками.</p></div><span class="section-icon">▧</span></div>
+        {% if item.media_path %}
+          <div class="current-media"><img src="{{ url_for('image.serve_image') }}?type=message_media&img={{ item.media_path.split('/')[-1] }}" alt="Текущее медиа"><label><input type="checkbox" name="template[{{ key }}][remove_media]" value="1"> Удалить текущее медиа</label></div>
+        {% endif %}
+        <div class="form-group">
+          <label>Загрузить фото или GIF <span class="help-tip" tabindex="0" data-tooltip="JPG, PNG отправляются как фотография; GIF — как анимация. Если файл отсутствует, бот отправит обычный текст.">?</span></label>
+          <input type="file" name="template[{{ key }}][media]" accept=".jpg,.jpeg,.png,.gif">
+        </div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-header"><div><h2>Кнопки</h2><p>Каждая заполненная кнопка выводится на отдельной строке.</p></div><span class="section-icon">↗</span></div>
+        {% for n in [1,2] %}
+        <div class="form-grid">
+          <div class="form-group"><label>Текст кнопки {{ n }} <span class="help-tip" tabindex="0" data-tooltip="Короткое название кнопки. Кнопка появится только при заполненных тексте и URL.">?</span></label><input type="text" maxlength="64" name="template[{{ key }}][button{{ n }}_text]" value="{{ item['button' ~ n ~ '_text'] }}"></div>
+          <div class="form-group"><label>URL кнопки {{ n }} <span class="help-tip" tabindex="0" data-tooltip="Полная ссылка, начинающаяся с https:// или tg://.">?</span></label><input type="url" name="template[{{ key }}][button{{ n }}_url]" value="{{ item['button' ~ n ~ '_url'] }}"></div>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="section-card">
+        <div class="section-header"><div><h2>Поведение</h2><p>Дополнительные параметры отправки Telegram.</p></div><span class="section-icon">⚙</span></div>
+        <div class="option-grid">
+          <label class="check-card"><input type="checkbox" name="template[{{ key }}][show_delete_notice]" value="1" {% if item.show_delete_notice %}checked{% endif %}><span><strong>Показывать таймер удаления</strong><small>Добавляет строку «Сообщение удалится через…».</small></span></label>
+          <label class="check-card"><input type="checkbox" name="template[{{ key }}][disable_preview]" value="1" {% if item.disable_preview %}checked{% endif %}><span><strong>Отключать превью ссылок</strong><small>Не показывает карточки сайтов под сообщением.</small></span></label>
+          <label class="check-card"><input type="checkbox" name="template[{{ key }}][silent]" value="1" {% if item.silent %}checked{% endif %}><span><strong>Без звукового уведомления</strong><small>Telegram доставит ответ бесшумно.</small></span></label>
+          <label class="check-card"><input type="checkbox" name="template[{{ key }}][protect_content]" value="1" {% if item.protect_content %}checked{% endif %}><span><strong>Защитить содержимое</strong><small>Запрещает пересылку и сохранение, если это поддерживает чат.</small></span></label>
+        </div>
+      </div>
+    </section>
+    {% endfor %}
+
+    <section class="tab-panel" data-tab-panel="telegram">
+      <div class="section-card"><div class="section-header"><div><h2>Параметры Telegram</h2><p>Общие пояснения к поведению отправки.</p></div><span class="section-icon">✈</span></div>
+        <div class="info-grid">
+          <article class="info-card"><strong>Фото не теряется</strong><p>При наличии файла бот вызывает sendPhoto, а текст передаёт как caption. GIF отправляется через sendAnimation.</p></article>
+          <article class="info-card"><strong>Без медиа</strong><p>Если файл удалён, не найден или не выбран, бот автоматически переключается на обычное sendMessage.</p></article>
+          <article class="info-card"><strong>Ограничение Telegram</strong><p>Подпись к медиа короче обычного текстового сообщения. Не делайте шаблон слишком длинным.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="tab-panel" data-tab-panel="variables">
+      <div class="section-card"><div class="section-header"><div><h2>Доступные переменные</h2><p>Их можно вставлять в шаблоны обеих команд.</p></div><span class="section-icon">{ }</span></div>
+        <div class="variable-list">
+          <code>{identity}</code><span>Имя, ссылка на пользователя, username и Telegram ID.</span>
+          <code>{full_name}</code><span>Отображаемое имя пользователя.</span>
+          <code>{username}</code><span>Username без символа @; может быть пустым.</span>
+          <code>{user_id}</code><span>Числовой Telegram ID.</span>
+          <code>{donation_lines}</code><span>Список активных донатов, сроков и дневных лимитов.</span>
+          <code>{permanent_level}</code><span>Номер бессрочного уровня Медиа.</span>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="sticky-save"><button type="submit">Сохранить все настройки</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-tab-target]').forEach(button => button.addEventListener('click', () => {
+  document.querySelectorAll('[data-tab-target]').forEach(x => x.classList.toggle('active', x === button));
+  document.querySelectorAll('[data-tab-panel]').forEach(x => x.classList.toggle('active', x.dataset.tabPanel === button.dataset.tabTarget));
+}));
+</script>
+{% endblock %}

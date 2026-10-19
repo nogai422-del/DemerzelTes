@@ -1,8 +1,11 @@
 aiogram>=3.28.1
 aiosqlite
-dotenv
+python-dotenv>=1.0.0
 flask[async]
 waitress
 emoji
-bs4
+beautifulsoup4
 Pillow
+
+telethon>=1.40.0
+qrcode[pil]>=7.4.2

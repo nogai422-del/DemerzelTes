@@ -3,10 +3,14 @@
 {% block kicker %}Модерация сообщений{% endblock %}
 {% block page_title %}Словарь матов{% endblock %}
 {% block page_description %}Управляйте префиксами и точными словами. Бот автоматически нормализует регистр, букву «ё», дубли и часть обходов цензуры.{% endblock %}
-{% block notices %}{% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Словарь сохранён</strong>Обновлённые слова будут применяться при следующей проверке.</div></div>{% endif %}{% endblock %}
+{% block notices %}
+  {% if saved %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Словарь сохранён</strong>Обновлённые слова будут применяться при следующей проверке.</div></div>{% endif %}
+  {% if csrf == "0" %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Ошибка безопасности</strong>Обновите страницу и повторите сохранение.</div></div>{% endif %}
+{% endblock %}
 {% block content %}
 <div class="info-panel"><p><strong>Как заполнять:</strong> вводите слова через пробел. Не добавляйте неоднозначные слова, которые часто используются в обычном контексте.</p><p>Спецсимволы и латиница внутри кириллических слов распознаются ботом автоматически.</p></div>
 <form method="POST">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <section class="section-card">
     <div class="section-header"><div><h2>Префиксы</h2><p>Блокируют все слова, начинающиеся с указанной основы. Например, основа «хуй» также блокирует производные.</p></div><span class="section-icon">⌁</span></div>
     <div class="form-group"><label for="prefixes">Список основ</label><textarea id="prefixes" name="prefixes" spellcheck="false">{{ prefixes_content | e }}</textarea></div>

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Telethon — Demerzel{% endblock %}
+{% block kicker %}Интеграции{% endblock %}
+{% block page_title %}Настройки Telethon{% endblock %}
+{% block page_description %}Авторизация Telegram-аккаунта и актуализация списка участников без отдельных session-файлов.{% endblock %}
+
+{% block notices %}
+  {% if notice == 'saved' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Настройки сохранены</strong>Параметры будут использованы при следующей проверке или синхронизации.</div></div>{% endif %}
+  {% if notice == 'qr_created' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>QR-код создан</strong>Откройте Telegram → Настройки → Устройства → Подключить устройство и отсканируйте код.</div></div>{% endif %}
+  {% if notice == 'qr_waiting' %}<div class="notice notice-success"><span class="notice-icon">…</span><div><strong>QR ещё не подтверждён</strong>Отсканируйте код в официальном приложении Telegram, подтвердите вход и нажмите «Проверить подтверждение».</div></div>{% endif %}
+  {% if notice == 'code_sent' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Запрос кода принят</strong>Проверьте служебный чат Telegram на всех устройствах. Код обычно приходит в приложение, а не по SMS.</div></div>{% endif %}
+  {% if notice == 'password_needed' %}<div class="notice notice-success"><span class="notice-icon">→</span><div><strong>Требуется пароль 2FA</strong>Введите пароль двухэтапной аутентификации Telegram.</div></div>{% endif %}
+  {% if notice.startswith('authorized_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Telethon подключён</strong>Сессия успешно авторизована и сохранена в основной базе. Telegram ID: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
+  {% if notice == 'disconnected' %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Сессия отключена</strong>Сохранённая StringSession удалена, автосинхронизация выключена.</div></div>{% endif %}
+  {% if notice.startswith('test_ok_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Подключение работает</strong>Telethon-сессия авторизована. Telegram ID: {{ notice.split('_')[-1] }}.</div></div>{% endif %}
+  {% if notice.startswith('synced_') %}{% set p=notice.split('_') %}<div class="notice notice-success"><span class="notice-icon">✓</span><div><strong>Синхронизация завершена</strong>Найдено {{ p[1] }}, новых {{ p[2] }}, обновлено {{ p[3] }}, отсутствуют {{ p[4] }}.</div></div>{% endif %}
+  {% if error %}<div class="notice notice-error"><span class="notice-icon">!</span><div><strong>Не удалось выполнить действие</strong>{% if error == 'csrf' %}Обновите страницу и повторите.{% elif last_error %}{{ last_error }}{% else %}Проверьте параметры и журнал приложения.{% endif %}</div></div>{% endif %}
+{% endblock %}
+
+{% block content %}
+<form method="post" class="settings-layout" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>API Telegram</h2><p>API ID и API Hash создаются на my.telegram.org. API Hash после сохранения не показывается целиком.</p></div><span class="section-icon">⌁</span></div>
+    <div class="form-grid">
+      <label class="field"><span>Telethon включён</span><select name="enabled"><option value="1" {% if settings.enabled %}selected{% endif %}>Да</option><option value="0" {% if not settings.enabled %}selected{% endif %}>Нет</option></select></label>
+      <label class="field"><span>API ID</span><input type="number" name="api_id" value="{{ settings.api_id }}" placeholder="12345678" min="1"></label>
+      <label class="field"><span>API Hash</span><input type="password" name="api_hash" value="" placeholder="Оставьте пустым, чтобы не менять"><small>Сейчас: {{ masked_api_hash }}</small></label>
+      <label class="field"><span>Номер телефона Telegram</span><input type="tel" name="phone" value="{{ settings.phone }}" placeholder="+491234567890"><small>Международный формат с символом +.</small></label>
+    </div>
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Авторизация аккаунта</h2><p>Сессия хранится как StringSession в основной базе Demerzel. Файл <code>.session</code> больше не используется.</p></div><span class="section-icon">◉</span></div>
+
+    {% if not settings.session %}
+      <div class="info-panel">
+        <strong>Рекомендуемый способ: вход по QR-коду</strong>
+        <span>Он не зависит от доставки SMS или служебного кода. В Telegram откройте: Настройки → Устройства → Подключить устройство.</span>
+      </div>
+      {% if qr_data_uri %}
+        <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;margin:18px 0;">
+          <div style="background:#fff;padding:14px;border-radius:16px;line-height:0;"><img src="{{ qr_data_uri }}" alt="QR-код авторизации Telegram" width="260" height="260" style="display:block;max-width:100%;height:auto;"></div>
+          <div class="info-panel" style="flex:1;min-width:260px;">
+            <strong>Отсканируйте QR-код</strong>
+            <span>1. Откройте официальное приложение Telegram на телефоне.</span>
+            <span>2. Перейдите в Настройки → Устройства → Подключить устройство.</span>
+            <span>3. Отсканируйте код и подтвердите вход.</span>
+            <span>4. Нажмите «Проверить подтверждение».</span>
+          </div>
+        </div>
+        <div class="action-bar">
+          <button class="button button-primary" type="submit" name="action" value="check_qr">Проверить подтверждение</button>
+          <button class="button" type="submit" name="action" value="refresh_qr">Обновить QR-код</button>
+        </div>
+      {% else %}
+        <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="start_qr">Создать QR-код для входа</button></div>
+      {% endif %}
+      <div style="height:18px"></div>
+    {% endif %}
+
+    {% if settings.session %}
+      <div class="info-panel">
+        <strong>Аккаунт подключён</strong>
+        <span>{{ settings.authorized_name or 'Telegram-пользователь' }}{% if settings.authorized_username %} · @{{ settings.authorized_username }}{% endif %}{% if settings.authorized_user_id %} · ID {{ settings.authorized_user_id }}{% endif %}</span>
+        <span>StringSession: {{ masked_session }}</span>
+      </div>
+    {% elif auth_state.status == 'password_needed' %}
+      <div class="form-grid">
+        <label class="field"><span>Пароль двухэтапной аутентификации</span><input type="password" name="telegram_password" placeholder="Пароль 2FA" autocomplete="current-password"></label>
+      </div>
+      <div class="action-bar"><button class="button button-primary" type="submit" name="action" value="confirm_password">Подтвердить пароль</button></div>
+    {% else %}
+      <div class="info-panel">
+        <strong>{% if auth_state.status == 'code_sent' %}Код запрошен{% else %}Аккаунт ещё не подключён{% endif %}</strong>
+        <span>Telegram чаще всего отправляет код в служебный чат «Telegram» внутри приложения на уже авторизованном устройстве. SMS используется не всегда.</span>
+        {% if auth_state.status == 'code_sent' %}
+          <span>Номер: {{ auth_state.phone }} · способ доставки: {{ auth_state.delivery_type or 'Telegram-приложение' }}{% if auth_state.next_delivery_type %} · следующий способ: {{ auth_state.next_delivery_type }}{% endif %}{% if auth_state.timeout_seconds|int > 0 %} · повторный запрос примерно через {{ auth_state.timeout_seconds }} сек.{% endif %}</span>
+        {% endif %}
+        {% if auth_state.error_text %}<span>Последняя ошибка: {{ auth_state.error_text }}</span>{% endif %}
+      </div>
+      <div class="form-grid">
+        <label class="field"><span>Код подтверждения</span><input type="text" inputmode="numeric" name="telegram_code" placeholder="12345" maxlength="12" autocomplete="one-time-code"><small>Поле доступно всегда. Сначала нажмите «Получить код», затем введите его сюда.</small></label>
+      </div>
+      <div class="action-bar">
+        <button class="button button-primary" type="submit" name="action" value="request_code">{% if auth_state.status == 'code_sent' %}Запросить код повторно{% else %}Получить код Telegram{% endif %}</button>
+        <button class="button" type="submit" name="action" value="confirm_code">Подтвердить введённый код</button>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="section-card">
+    <div class="section-header"><div><h2>Синхронизация участников</h2><p>Основной чат используется для ручной и автоматической актуализации.</p></div><span class="section-icon">↻</span></div>
+    <div class="form-grid">
+      <label class="field"><span>ID Telegram-чата</span><input type="text" name="default_chat_id" value="{{ settings.default_chat_id }}" placeholder="-1001234567890"></label>
+      <label class="field"><span>Автосинхронизация</span><select name="auto_sync_enabled"><option value="1" {% if settings.auto_sync_enabled %}selected{% endif %}>Включена</option><option value="0" {% if not settings.auto_sync_enabled %}selected{% endif %}>Выключена</option></select></label>
+      <label class="field"><span>Интервал, минут</span><input type="number" name="sync_interval_minutes" value="{{ settings.sync_interval_minutes }}" min="15" max="10080"><small>Минимум 15 минут.</small></label>
+    </div>
+    {% if sync_state %}<div class="info-panel"><strong>Последний статус: {{ sync_state.status or 'не запускалась' }}</strong><span>Найдено: {{ sync_state.found_count or 0 }} · новых: {{ sync_state.new_count or 0 }} · обновлено: {{ sync_state.updated_count or 0 }} · отсутствуют: {{ sync_state.missing_count or 0 }}</span>{% if sync_state.error_text %}<span>{{ sync_state.error_text }}</span>{% endif %}</div>{% endif %}
+  </section>
+
+  <div class="action-bar">
+    <button class="button button-primary" type="submit" name="action" value="save">Сохранить настройки</button>
+    {% if settings.session %}<button class="button" type="submit" name="action" value="test">Проверить подключение</button><button class="button" type="submit" name="action" value="sync">Синхронизировать сейчас</button><button class="button button-danger" type="submit" name="action" value="disconnect" onclick="return confirm('Удалить сохранённую Telethon-сессию?')">Отключить сессию</button>{% endif %}
+  </div>
+</form>
+{% endblock %}

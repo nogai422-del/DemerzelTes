@@ -4,6 +4,7 @@ import os
 import re
 from flask import Blueprint, request, send_file, abort
 from PIL import Image, ImageOps
+from bot.notification_delivery import resolve_notification_source_path
 
 image_bp = Blueprint("image", __name__)
 
@@ -15,6 +16,7 @@ ALLOWED = {
     "permission": os.path.join(BASE_DIR, "bot/images/permission_images"),
     "scheduled": os.path.join(BASE_DIR, "bot/images/scheduled_images"),
     "donation": os.path.join(BASE_DIR, "bot/images/donation_images"),
+    "message_media": os.path.join(BASE_DIR, "bot/images/message_media"),
 }
 
 MAX_SIDE = 2048
@@ -30,11 +32,26 @@ def serve_image():
 
     file = os.path.basename(request.args.get("img", ""))
 
-    if not re.search(r"\.(jpe?g|png|gif)$", file, re.I):
+    if not re.search(r"\.(jpe?g|png|gif|webp)$", file, re.I):
         abort(404)
+
+    # Картинки уведомлений сначала ищем в постоянном DATA_DIR/uploads.
+    # Это позволяет им переживать пересборки контейнера Bothost.
+    if type_ in {"permission", "donation"}:
+        subdir = "permission_images" if type_ == "permission" else "donation_images"
+        persistent_or_bundled = resolve_notification_source_path(f"{subdir}/{file}")
+        if persistent_or_bundled is None or not persistent_or_bundled.is_file():
+            abort(404)
+        return send_file(str(persistent_or_bundled), conditional=True, max_age=3600)
 
     folder = ALLOWED[type_]
     original = os.path.join(folder, file)
+
+    # Медиа шаблонов отдаём без преобразования: GIF должен остаться анимацией.
+    if type_ == "message_media":
+        if not os.path.isfile(original):
+            abort(404)
+        return send_file(original, conditional=True, max_age=3600)
 
     base_name, ext = os.path.splitext(file)
     ext = ext.lower().lstrip(".")
@@ -72,12 +89,6 @@ def serve_image():
             optimize=True,
             progressive=True,
         )
-
-        if original != jpg_path:
-            try:
-                os.remove(original)
-            except OSError:
-                pass
 
         return send_file(jpg_path, conditional=True, max_age=86400)
 

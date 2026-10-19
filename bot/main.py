@@ -1,6 +1,8 @@
 # Запуск Telegram-бота: регистрация роутеров и фоновых задач.
 
 import asyncio
+import os
+
 from aiogram import Dispatcher
 
 from bot.bot_init import bot
@@ -17,14 +19,41 @@ from bot.handlers.reactions import router as reactions_router
 from bot.handlers.echo import wisdom_loop
 from bot.scheduled_messages import scheduled_messages_loop
 from bot.donations import donation_notifications_loop, ensure_donation_schema
+from bot.settings import ensure_chat_behavior_schema
 from bot.warning_state import ensure_warning_schema
+from bot.message_queue import shutdown_message_queue
+from bot.telethon_sync import telethon_auto_sync_loop
 
 dp = Dispatcher()
 
 
+def _acquire_polling_lock():
+    """Не даёт двум процессам на одном persistent volume одновременно читать getUpdates."""
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    data_dir = os.getenv("DATA_DIR", "database")
+    os.makedirs(data_dir, exist_ok=True)
+    handle = open(os.path.join(data_dir, "telegram_polling.lock"), "a+")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return handle
+    except BlockingIOError:
+        handle.close()
+        return False
+
+
 # Точка запуска и координации основных задач модуля.
 async def main():
+    polling_lock = _acquire_polling_lock()
+    if polling_lock is False:
+        print("Telegram polling уже запущен другим процессом; этот экземпляр обслуживает только web")
+        await asyncio.Event().wait()
+        return
+
     await ensure_donation_schema()
+    await ensure_chat_behavior_schema()
     await ensure_warning_schema()
 
     dp.include_router(private_guard_router)
@@ -39,6 +68,7 @@ async def main():
     wisdom_task = asyncio.create_task(wisdom_loop(bot))
     scheduled_task = asyncio.create_task(scheduled_messages_loop(bot))
     donation_task = asyncio.create_task(donation_notifications_loop(bot))
+    telethon_task = asyncio.create_task(telethon_auto_sync_loop())
 
     try:
         await dp.start_polling(
@@ -47,9 +77,11 @@ async def main():
         )
 
     finally:
-        for task in (daily_task, wisdom_task, scheduled_task, donation_task):
+        for task in (daily_task, wisdom_task, scheduled_task, donation_task, telethon_task):
             task.cancel()
 
         await asyncio.gather(
-            daily_task, wisdom_task, scheduled_task, donation_task, return_exceptions=True
+            daily_task, wisdom_task, scheduled_task, donation_task, telethon_task, return_exceptions=True
         )
+        await shutdown_message_queue()
+        await bot.session.close()
