@@ -81,15 +81,13 @@ async def handle_save_command(message: Message, bot):
         if not replied or not replied.from_user or replied.sender_chat:
             await bot_answer(message, "Чтобы сохранить анкету, вызовите /save в ответ на сообщение с анкетой.")
             return
-        is_own_update = (
-            replied.from_user.id == message.from_user.id
-            and await get_form_stage(message.chat.id, message.from_user.id) == FORM_STAGE_SAVED
-        )
-        if not is_admin and not is_own_update:
-            await bot_answer(message, "Первую анкету подтверждает администратор. После проверки вы сможете обновлять свою анкету самостоятельно.")
+        is_verified = await get_form_stage(message.chat.id, message.from_user.id) == FORM_STAGE_SAVED
+        is_own_update = replied.from_user.id == message.from_user.id and is_verified
+        if not is_admin and not is_verified:
+            await bot_answer(message, "Сохранять анкеты могут администраторы и участники с подтверждённой анкетой.")
             return
 
-        if is_admin or is_own_update:
+        if is_admin or is_verified:
             if message.reply_to_message:
                 chat_id = message.chat.id
                 user = message.reply_to_message.from_user
@@ -125,7 +123,7 @@ async def handle_save_command(message: Message, bot):
                 # Это отдельный уровень прав Telegram и не заменяет внутреннюю модерацию бота.
                 restrictions_removed = False
                 try:
-                    if not is_admin:
+                    if not is_admin and is_own_update:
                         # Самостоятельное обновление текста не меняет права Telegram.
                         restrictions_removed = True
                     else:
