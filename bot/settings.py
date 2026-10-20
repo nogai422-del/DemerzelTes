@@ -17,7 +17,8 @@ async def ensure_chat_behavior_schema() -> None:
             CREATE TABLE IF NOT EXISTS chat_behavior_settings (
                 id                            INTEGER PRIMARY KEY CHECK (id = 1),
                 restrict_new_members_telegram INTEGER NOT NULL DEFAULT 0,
-                pre_bv_mode TEXT NOT NULL DEFAULT 'silent'
+                pre_bv_mode TEXT NOT NULL DEFAULT 'silent',
+                pre_bv_notification_mode TEXT NOT NULL DEFAULT 'common'
             )
             """
         )
@@ -28,6 +29,8 @@ async def ensure_chat_behavior_schema() -> None:
                 "ALTER TABLE chat_behavior_settings "
                 "ADD COLUMN pre_bv_mode TEXT NOT NULL DEFAULT 'silent'"
             )
+        if "pre_bv_notification_mode" not in columns:
+            await cur.execute("ALTER TABLE chat_behavior_settings ADD COLUMN pre_bv_notification_mode TEXT NOT NULL DEFAULT 'common'")
         await cur.execute(
             """
             INSERT OR IGNORE INTO chat_behavior_settings (
@@ -99,3 +102,18 @@ async def set_pre_bv_mode(mode: str) -> None:
         if "pre_bv_mode" not in columns:
             await cur.execute("ALTER TABLE chat_behavior_settings ADD COLUMN pre_bv_mode TEXT NOT NULL DEFAULT 'silent'")
         await cur.execute("UPDATE chat_behavior_settings SET pre_bv_mode=? WHERE id=1", (mode,))
+
+
+async def get_pre_bv_notification_mode() -> str:
+    await ensure_chat_behavior_schema()
+    async with db() as cur:
+        await cur.execute("SELECT pre_bv_notification_mode FROM chat_behavior_settings WHERE id=1")
+        row = await cur.fetchone()
+    return 'separate' if row and row[0] == 'separate' else 'common'
+
+
+async def set_pre_bv_notification_mode(mode: str) -> None:
+    await ensure_chat_behavior_schema()
+    value = 'separate' if mode == 'separate' else 'common'
+    async with db() as cur:
+        await cur.execute("UPDATE chat_behavior_settings SET pre_bv_notification_mode=? WHERE id=1", (value,))

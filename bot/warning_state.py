@@ -34,6 +34,7 @@ ONBOARDING_MESSAGE = (
 )
 
 FORM_FILLING_PREFIX = "form_filling:"
+PRE_BV_PREFIX = "pre_bv:"
 FORM_FILLING_STAGE_TITLE = "Во время заполнения анкеты"
 
 POST_SAVE_GENERIC_PERMISSION_TYPE = "other_media"
@@ -172,8 +173,18 @@ def is_form_filling_permission_type(permission_type: str) -> bool:
     return str(permission_type).startswith(FORM_FILLING_PREFIX)
 
 
+def pre_bv_permission_type(permission_type: str) -> str:
+    return f"{PRE_BV_PREFIX}{permission_type}"
+
+
+def is_pre_bv_permission_type(permission_type: str) -> bool:
+    return str(permission_type).startswith(PRE_BV_PREFIX)
+
+
 def base_permission_type(permission_type: str) -> str:
     value = str(permission_type)
+    if is_pre_bv_permission_type(value):
+        return value[len(PRE_BV_PREFIX):]
     return value[len(FORM_FILLING_PREFIX):] if is_form_filling_permission_type(value) else value
 
 
@@ -254,6 +265,14 @@ async def ensure_warning_schema() -> None:
                 ) VALUES (?, ?, ?, '', '', '')
                 """,
                 (form_filling_permission_type(permission_type), title, message),
+            )
+            pre_title = _POST_SAVE_DEFAULTS.get(permission_type, ('Реакции', ''))[0]
+            await cur.execute(
+                """INSERT OR IGNORE INTO permission_types
+                   (media_type,title,message,image_path,button_text,button_url)
+                   VALUES (?,?,?,'','','')""",
+                (pre_bv_permission_type(permission_type), pre_title,
+                 f"{{user}}, {pre_title.lower()} пока недоступны. Сначала получите анкету командой /bv и заполните её."),
             )
 
         # Удаляем только мёртвые ссылки на файлы. Такие ссылки остаются после

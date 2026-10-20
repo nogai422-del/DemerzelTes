@@ -8,12 +8,13 @@ from bot.database import db
 from bot.donations import ensure_donation_schema
 from bot.utils import normalize_telegram_button_url
 from bot.notification_delivery import notification_upload_dir, store_notification_upload
-from bot.settings import get_pre_bv_mode, set_pre_bv_mode
+from bot.settings import get_pre_bv_mode, set_pre_bv_mode, get_pre_bv_notification_mode, set_pre_bv_notification_mode
 from bot.warning_state import (
     ONBOARDING_PERMISSION_TYPE,
     base_permission_type,
     ensure_warning_schema,
     is_form_filling_permission_type,
+    is_pre_bv_permission_type,
 )
 
 edit_permission_bp = Blueprint("edit_permission", __name__)
@@ -173,6 +174,8 @@ async def edit_permission_messages():
             media_rows[media_type][field] = request.form.get(key)
 
         try:
+            if 'pre_bv_notification_mode' in request.form:
+                await set_pre_bv_notification_mode(request.form['pre_bv_notification_mode'])
             await set_pre_bv_mode(request.form.get("pre_bv_mode", "silent"))
             async with db() as cur:
                 for media_type, row in media_rows.items():
@@ -238,6 +241,7 @@ async def edit_permission_messages():
         rows = await cur.fetchall()
 
     onboarding = None
+    pre_bv_list = []
     filling_list = []
     regular_list = []
     for r in rows:
@@ -254,6 +258,8 @@ async def edit_permission_messages():
         }
         if media_type == ONBOARDING_PERMISSION_TYPE:
             onboarding = item
+        elif is_pre_bv_permission_type(media_type):
+            pre_bv_list.append(item)
         elif is_form_filling_permission_type(media_type):
             filling_list.append(item)
         else:
@@ -272,6 +278,8 @@ async def edit_permission_messages():
         regular_list=regular_list,
         reaction_denied=reaction_denied,
         pre_bv_mode=pre_bv_mode,
+        pre_bv_notification_mode=await get_pre_bv_notification_mode(),
+        pre_bv_list=sorted(pre_bv_list, key=lambda item: str(item['title']).casefold()),
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),
         image_error=request.args.get("image_error"),

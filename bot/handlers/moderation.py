@@ -26,6 +26,7 @@ from bot.message_queue import (
 from bot.message_templates import get_message_template, render_template, send_configured_message
 from bot.notification_delivery import send_notification_card
 from bot.donation_revoke_settings import get_revoke_settings, log_revoke_action, render_revoke_text
+from bot.settings import get_pre_bv_notification_mode
 from bot.handlers.badword_detector import detect_badword_details
 from bot.handlers.emoji_detector import message_emoji_count
 from bot.utils import (
@@ -41,6 +42,7 @@ from bot.warning_state import (
     form_filling_permission_type,
     get_form_stage,
     post_save_permission_type,
+    pre_bv_permission_type,
     replace_warning,
 )
 from env_config import require_int_env
@@ -378,7 +380,11 @@ async def send_restriction_warning_to_chat(
     if not force_permission_type and effective_type != "view":
         form_stage = await get_form_stage(chat_id, user_id)
         if form_stage == FORM_STAGE_NEW:
-            effective_type = ONBOARDING_PERMISSION_TYPE
+            effective_type = (
+                pre_bv_permission_type(effective_type)
+                if await get_pre_bv_notification_mode() == 'separate'
+                else ONBOARDING_PERMISSION_TYPE
+            )
         elif form_stage == FORM_STAGE_FILLING:
             effective_type = form_filling_permission_type(effective_type)
         elif form_stage == FORM_STAGE_SAVED:
@@ -387,7 +393,7 @@ async def send_restriction_warning_to_chat(
         effective_type = post_save_permission_type(effective_type)
 
     settings = await get_permission_settings(effective_type)
-    if not settings and form_stage == FORM_STAGE_FILLING:
+    if not settings and form_stage in (FORM_STAGE_NEW, FORM_STAGE_FILLING):
         # Защита для старой базы без промежуточных шаблонов.
         effective_type = ONBOARDING_PERMISSION_TYPE
         settings = await get_permission_settings(effective_type)

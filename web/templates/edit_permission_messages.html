@@ -52,7 +52,7 @@
 
 {% block content %}
 <div class="stage-flow" aria-label="Этапы анкеты">
-  <div class="stage-step"><span>1</span><strong>До /bv</strong><small>Общее сообщение</small></div>
+  <div class="stage-step"><span>1</span><strong>До /bv</strong><small>Общее или по типам</small></div>
   <div class="stage-arrow">→</div>
   <div class="stage-step stage-step-active"><span>2</span><strong>/bv → /save</strong><small>Отдельные причины удаления</small></div>
   <div class="stage-arrow">→</div>
@@ -69,11 +69,29 @@
       <option value="notify" {% if pre_bv_mode == 'notify' %}selected{% endif %}>Запрещать и показывать уведомление</option>
       <option value="allow" {% if pre_bv_mode == 'allow' %}selected{% endif %}>Разрешить функции до /bv</option>
     </select><span class="field-help">В режиме «молча» запрещённое сообщение удаляется, но предупреждение в чат не отправляется.</span></div>
+    <div class="form-group full">
+      <label for="pre-bv-notification-mode">Вариант оповещений до /bv</label>
+      <select id="pre-bv-notification-mode" name="pre_bv_notification_mode">
+        <option value="common" {% if pre_bv_notification_mode == 'common' %}selected{% endif %}>Одно общее сообщение — текущий вариант</option>
+        <option value="separate" {% if pre_bv_notification_mode == 'separate' %}selected{% endif %}>Отдельные сообщения по типам ограничений</option>
+      </select>
+      <span class="field-help">Настройка относится только к этапу до выдачи анкеты. При переключении все тексты, картинки и кнопки обоих вариантов сохраняются.</span>
+    </div>
+    <div id="pre-bv-common" {% if pre_bv_notification_mode != 'common' %}hidden{% endif %}>
     {% if onboarding %}
       {{ notification_editor(onboarding, true, 'Используется до первой команды /bv') }}
     {% else %}
       <div class="notice notice-error">Шаблон первого этапа не найден. Перезапустите приложение для восстановления схемы.</div>
     {% endif %}
+    </div>
+    <div id="pre-bv-separate" {% if pre_bv_notification_mode != 'separate' %}hidden{% endif %}>
+      <div class="info-panel"><p>Каждый тип нарушения до <code>/bv</code> использует собственный текст, изображение и кнопку. Шаблоны остальных этапов не меняются.</p></div>
+      <div class="accordion-stack">
+        {% for m in pre_bv_list %}
+          {{ notification_editor(m, false, 'До получения анкеты · ' ~ m.base_type) }}
+        {% endfor %}
+      </div>
+    </div>
   </section>
 
   <section class="section-card stage-highlight">
@@ -123,6 +141,15 @@
 <script src="{{ url_for('static', filename='autoresize.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
+  const preBvMode = document.getElementById('pre-bv-notification-mode');
+  if (preBvMode) {
+    const updatePreBvEditors = function () {
+      document.getElementById('pre-bv-common').hidden = preBvMode.value !== 'common';
+      document.getElementById('pre-bv-separate').hidden = preBvMode.value !== 'separate';
+    };
+    preBvMode.addEventListener('change', updatePreBvEditors);
+    updatePreBvEditors();
+  }
   document.querySelectorAll('.upload-input').forEach(function (input) {
     input.addEventListener('change', function () {
       const file = input.files[0]; if (!file) return;
