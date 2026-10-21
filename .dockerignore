@@ -10,6 +10,8 @@ node_modules
 data/
 database/
 backup/
+nohup.out
+verify_*.py
 prepare_update_*.py
 data/*.db-shm
 data/*.db-wal

@@ -10,6 +10,7 @@ from env_config import require_env
 load_dotenv()
 
 from bot.database import db
+from bot.runtime import runtime
 from bot.donations import (
     ensure_donation_schema,
     get_expiry_notification_settings,
@@ -130,10 +131,13 @@ def create_app():
         )
         missing = [name for name in required if name not in tables]
         templates_ready = filling_templates >= 12
+        bot_state = runtime.snapshot()
+        runtime_required = os.getenv('DEMERZEL_WORKER') == '1'
         ok = (
             not missing
             and templates_ready
             and chat_user_duplicates == 0
+            and (not runtime_required or bot_state['status'] == 'ok')
         )
         status = 200 if ok else 503
         return jsonify({
@@ -142,6 +146,7 @@ def create_app():
             "form_filling_templates": filling_templates,
             "chat_user_duplicates": chat_user_duplicates,
             "notification_images_missing": missing_images,
+            "telegram": bot_state,
         }), status
 
     # Редиректит на стартовую страницу панели после авторизации.

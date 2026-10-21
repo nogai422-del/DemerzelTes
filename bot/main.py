@@ -23,6 +23,7 @@ from bot.settings import ensure_chat_behavior_schema
 from bot.warning_state import ensure_warning_schema
 from bot.message_queue import shutdown_message_queue
 from bot.telethon_sync import telethon_auto_sync_loop
+from bot.runtime import PollingProgress, UpdateDeadline, heartbeat_loop, supervise_background
 
 dp = Dispatcher()
 
@@ -48,9 +49,7 @@ def _acquire_polling_lock():
 async def main():
     polling_lock = _acquire_polling_lock()
     if polling_lock is False:
-        print("Telegram polling уже запущен другим процессом; этот экземпляр обслуживает только web")
-        await asyncio.Event().wait()
-        return
+        raise RuntimeError("Telegram polling lock is held by another worker")
 
     await ensure_donation_schema()
     await ensure_chat_behavior_schema()
@@ -64,24 +63,36 @@ async def main():
     dp.include_router(commands_router)
     dp.include_router(echo_router)
 
-    daily_task = asyncio.create_task(run_daily(bot))
-    wisdom_task = asyncio.create_task(wisdom_loop(bot))
-    scheduled_task = asyncio.create_task(scheduled_messages_loop(bot))
-    donation_task = asyncio.create_task(donation_notifications_loop(bot))
-    telethon_task = asyncio.create_task(telethon_auto_sync_loop())
+    bot.session.middleware(PollingProgress())
+    dp.update.outer_middleware(UpdateDeadline())
+    factories = {
+        'backup': lambda: run_daily(bot),
+        'wisdom': lambda: wisdom_loop(bot),
+        'scheduled': lambda: scheduled_messages_loop(bot),
+        'donations': lambda: donation_notifications_loop(bot),
+        'telethon': telethon_auto_sync_loop,
+        'heartbeat': heartbeat_loop,
+    }
+    background = [asyncio.create_task(supervise_background(name, factory), name=name)
+                  for name, factory in factories.items()]
 
     try:
         await dp.start_polling(
             bot,
             allowed_updates=["chat_member", "my_chat_member", "message", "message_reaction"],
+            polling_timeout=20,
+            tasks_concurrency_limit=32,
+            handle_signals=False,
         )
 
     finally:
-        for task in (daily_task, wisdom_task, scheduled_task, donation_task, telethon_task):
+        for task in background:
             task.cancel()
 
         await asyncio.gather(
-            daily_task, wisdom_task, scheduled_task, donation_task, telethon_task, return_exceptions=True
+            *background, return_exceptions=True
         )
         await shutdown_message_queue()
         await bot.session.close()
+        if polling_lock:
+            polling_lock.close()

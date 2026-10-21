@@ -35,10 +35,8 @@ async def memory_monitor_loop(
 ) -> None:
     from bot.message_queue import _locks
 
-    if not tracemalloc.is_tracing():
-        tracemalloc.start(25)
-
-    previous_snapshot = tracemalloc.take_snapshot()
+    tracing = tracemalloc.is_tracing()
+    previous_snapshot = tracemalloc.take_snapshot() if tracing else None
     loop_index = 0
     pid = os.getpid()
 
@@ -61,7 +59,7 @@ async def memory_monitor_loop(
                 f"message_queue_locks={lock_count}"
             )
 
-            if loop_index % diff_interval_loops == 0:
+            if tracing and loop_index % diff_interval_loops == 0:
                 current_snapshot = tracemalloc.take_snapshot()
                 top_stats = current_snapshot.compare_to(previous_snapshot, "lineno")
 

@@ -101,8 +101,9 @@ def setup_signal_handlers(loop, stop_event):
 async def main():
     print("Запуск bot + web")
 
-    if not tracemalloc.is_tracing():
-        tracemalloc.start(25)
+    # Deep allocation tracing is expensive; enable it only for diagnostics.
+    if os.getenv('MEMORY_TRACE', '0') == '1' and not tracemalloc.is_tracing():
+        tracemalloc.start(5)
 
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()

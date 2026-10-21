@@ -13,14 +13,20 @@ setup_console_capture("имя лошера"), например ("bot")
 import sys
 import os
 import atexit
+import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 
 
 # Подключает перехват stdout/stderr и пишет логи в файлы.
 def setup_console_capture(name: str = "run"):
-    os.makedirs("logs", exist_ok=True)
-
-    file = open(f"logs/{name}.log", "a", encoding="utf-8", buffering=1)
+    log_dir = os.path.join(os.getenv('DATA_DIR', '.'), 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    file = RotatingFileHandler(os.path.join(log_dir, f'{name}.log'),
+                               maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
+    file.setFormatter(logging.Formatter('%(message)s'))
+    # A full disk must not recursively log write failures through sys.stderr.
+    file.handleError = lambda record: None
     atexit.register(file.close)
 
     # Преобразует данные в нужный формат.
@@ -46,8 +52,9 @@ def setup_console_capture(name: str = "run"):
                 return
 
             line = format_line(text, self.level)
-            file.write(line + "\n")
+            file.emit(logging.LogRecord(name, logging.INFO, '', 0, line, (), None))
             self.orig.write(line + "\n")
+            return len(s)
 
         # Принудительно сбрасывает буфер вывода в целевой поток.
         def flush(self):

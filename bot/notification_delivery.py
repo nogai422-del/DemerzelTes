@@ -294,7 +294,7 @@ async def send_notification_card(
     if reply_parameters is not None:
         common_kwargs["reply_parameters"] = reply_parameters
 
-    prepared = prepare_notification_media(image_path)
+    prepared = await asyncio.to_thread(prepare_notification_media, image_path)
     if prepared.error:
         _log(context, f"картинка пропущена ({prepared.error}); отправляем текст")
 

@@ -33,27 +33,35 @@ ensure_database_ready(DB_PATH)
 async def _open_conn() -> aiosqlite.Connection:
     os.makedirs(DATA_DIR, exist_ok=True)
     ensure_database_ready(DB_PATH)
-    conn = await aiosqlite.connect(DB_PATH)
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL;")
-    await conn.execute("PRAGMA busy_timeout=30000;")
-    return conn
+    conn = await aiosqlite.connect(DB_PATH, timeout=30)
+    try:
+        conn.row_factory = aiosqlite.Row
+        # WAL is configured once by schema initialization, not on every request.
+        await conn.execute("PRAGMA busy_timeout=30000;")
+        return conn
+    except BaseException:
+        await conn.close()
+        raise
 
 
 # Контекст БД: выдает курсор и завершает транзакцию через commit/rollback.
 @asynccontextmanager
 async def db():
     conn = await _open_conn()
-    cur = await conn.cursor()
+    cur = None
     try:
+        cur = await conn.cursor()
         yield cur
         await conn.commit()
-    except Exception:
+    except BaseException:
         await conn.rollback()
         raise
     finally:
-        await cur.close()
-        await conn.close()
+        try:
+            if cur is not None:
+                await cur.close()
+        finally:
+            await conn.close()
 
 
 # Принудительно сбрасывает WAL в основной файл базы.

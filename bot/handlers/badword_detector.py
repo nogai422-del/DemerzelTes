@@ -149,37 +149,63 @@ def _normalize_to_cyr(text: str) -> str:
     return _normalize(text, CYR_SINGLE_MAP, CYR_MULTI_SEQ)
 
 
-def _normalized_candidates(text: str):
-    t = _preprocess_text(text, CYR_MULTI_SEQ)
-    options_per_char: list[tuple[str, ...]] = []
+def _build_normalized_trie(prefixes, exact):
+    nodes = [{}]
+    letters = ['']
+    terminals = {}
+    for kind, words in (('prefix', prefixes), ('exact', exact)):
+        for word in sorted(words):
+            node = 0
+            for char in word:
+                if char not in nodes[node]:
+                    nodes[node][char] = len(nodes)
+                    nodes.append({})
+                    letters.append(char)
+                node = nodes[node][char]
+            terminals.setdefault(node, {})[kind] = word
+    return nodes, letters, terminals
 
-    for ch in t:
-        if ch in CYR_SINGLE_MAP:
-            options_per_char.append((CYR_SINGLE_MAP[ch],))
-        elif ch in CYR_AMBIG_SINGLE_MAP:
-            options_per_char.append(CYR_AMBIG_SINGLE_MAP[ch])
 
-    if not options_per_char:
-        return
-
-    # Ленивый перебор всех комбинаций без лимита:
-    # вызывающий код завершает цикл сразу после первого совпадения.
-    seen: set[str] = set()
-
-    def _gen(idx: int, parts: list[str]):
-        if idx >= len(options_per_char):
-            candidate = "".join(parts)
-            if candidate and candidate not in seen:
-                seen.add(candidate)
-                yield candidate
-            return
-
-        for opt in options_per_char[idx]:
-            parts.append(opt)
-            yield from _gen(idx + 1, parts)
-            parts.pop()
-
-    yield from _gen(0, [])
+def _match_normalized(text: str, allowed=('prefix', 'exact')):
+    # Track dictionary positions rather than all possible normalized strings.
+    # Even highly ambiguous input cannot create more states than dictionary nodes.
+    nodes, letters, terminals = _normalized_trie
+    raw = {0}
+    squeezed = {0}
+    for char in _preprocess_text(text, CYR_MULTI_SEQ):
+        if char in CYR_SINGLE_MAP:
+            options = (CYR_SINGLE_MAP[char],)
+        else:
+            options = CYR_AMBIG_SINGLE_MAP.get(char)
+        if not options:
+            continue
+        next_raw = set()
+        next_squeezed = set()
+        for option in options:
+            for node in raw:
+                child = nodes[node].get(option)
+                if child is not None:
+                    next_raw.add(child)
+            for node in squeezed:
+                if letters[node] == option:
+                    next_squeezed.add(node)
+                else:
+                    child = nodes[node].get(option)
+                    if child is not None:
+                        next_squeezed.add(child)
+        raw, squeezed = next_raw, next_squeezed
+        if 'prefix' in allowed:
+            matches = [terminals[node]['prefix'] for node in raw | squeezed
+                       if 'prefix' in terminals.get(node, {})]
+            if matches:
+                return max(matches, key=len), 'prefix'
+        if not raw and not squeezed:
+            return None
+    if 'exact' in allowed:
+        for node in sorted(raw | squeezed):
+            if 'exact' in terminals.get(node, {}):
+                return terminals[node]['exact'], 'exact'
+    return None
 
 
 def _char_pattern(ch: str, regex_variants: dict[str, tuple[str, ...]]) -> str:
@@ -255,6 +281,7 @@ prefix_fallback_cyr = _build_fallback_set(prefix_words)
 exact_fallback_cyr = _build_fallback_set(exact_words)
 prefix_display_lookup = _build_display_lookup(prefix_words)
 exact_display_lookup = _build_display_lookup(exact_words)
+_normalized_trie = _build_normalized_trie(prefix_fallback_cyr, exact_fallback_cyr)
 
 _last_prefixes_mtime = BADWORDS_PREFIXES_PATH.stat().st_mtime if BADWORDS_PREFIXES_PATH.exists() else None
 _last_exact_mtime = BADWORDS_EXACT_PATH.stat().st_mtime if BADWORDS_EXACT_PATH.exists() else None
@@ -266,7 +293,7 @@ def _reload_badwords_if_needed() -> None:
     global prefix_words, exact_words
     global prefix_badwords_pattern, exact_badwords_pattern
     global prefix_fallback_cyr, exact_fallback_cyr
-    global prefix_display_lookup, exact_display_lookup
+    global prefix_display_lookup, exact_display_lookup, _normalized_trie
     global _last_prefixes_mtime, _last_exact_mtime, _last_mtime_check_ts
 
     now = time.monotonic()
@@ -290,6 +317,7 @@ def _reload_badwords_if_needed() -> None:
     exact_fallback_cyr = _build_fallback_set(exact_words)
     prefix_display_lookup = _build_display_lookup(prefix_words)
     exact_display_lookup = _build_display_lookup(exact_words)
+    _normalized_trie = _build_normalized_trie(prefix_fallback_cyr, exact_fallback_cyr)
 
     _last_prefixes_mtime = prefixes_mtime
     _last_exact_mtime = exact_mtime
@@ -303,41 +331,24 @@ async def detect_badword_details(
 
     _reload_badwords_if_needed()
 
-    if prefix_badwords_pattern:
-        match = prefix_badwords_pattern.search(text)
-        if match:
-            trigger_text = match.group(0)
-            for norm_raw in _normalized_candidates(trigger_text):
-                norm_squeezed = _squeeze_repeats(norm_raw)
-                canonical_prefix = (
-                    _match_prefix_canonical(norm_raw)
-                    or _match_prefix_canonical(norm_squeezed)
-                )
-                if canonical_prefix:
-                    return trigger_text, prefix_display_lookup.get(canonical_prefix, canonical_prefix), "prefix"
+    for pattern, kind in ((prefix_badwords_pattern, 'prefix'), (exact_badwords_pattern, 'exact')):
+        if pattern:
+            match = pattern.search(text)
+            if match:
+                trigger = match.group(0)
+                result = _match_normalized(trigger, (kind,))
+                if result:
+                    canonical, matched_kind = result
+                    lookup = prefix_display_lookup if matched_kind == 'prefix' else exact_display_lookup
+                    return trigger, lookup.get(canonical, canonical), matched_kind
 
-    if exact_badwords_pattern:
-        match = exact_badwords_pattern.search(text)
-        if match:
-            trigger_text = match.group(0)
-            for norm_raw in _normalized_candidates(trigger_text):
-                norm_squeezed = _squeeze_repeats(norm_raw)
-                if norm_raw in exact_fallback_cyr:
-                    return trigger_text, exact_display_lookup.get(norm_raw, norm_raw), "exact"
-                if norm_squeezed in exact_fallback_cyr:
-                    return trigger_text, exact_display_lookup.get(norm_squeezed, norm_squeezed), "exact"
-
-    for token in TOKENS_RE.findall(text.lower()):
-        for norm_raw in _normalized_candidates(token):
-            norm_squeezed = _squeeze_repeats(norm_raw)
-            if len(norm_raw) >= 3 or len(norm_squeezed) >= 3:
-                if norm_raw in exact_fallback_cyr:
-                    return token, exact_display_lookup.get(norm_raw, norm_raw), "exact"
-                if norm_squeezed in exact_fallback_cyr:
-                    return token, exact_display_lookup.get(norm_squeezed, norm_squeezed), "exact"
-                prefix = _match_prefix_canonical(norm_raw) or _match_prefix_canonical(norm_squeezed)
-                if prefix:
-                    return token, prefix_display_lookup.get(prefix, prefix), "prefix"
+    for match in TOKENS_RE.finditer(text):
+        token = match.group(0)
+        result = _match_normalized(token)
+        if result:
+            canonical, kind = result
+            lookup = prefix_display_lookup if kind == 'prefix' else exact_display_lookup
+            return token, lookup.get(canonical, canonical), kind
 
     return None
 
