@@ -61,7 +61,7 @@ class DetectorRuntimeTests(unittest.IsolatedAsyncioTestCase):
         # A subprocess deadline can stop a synchronous regression; asyncio.wait_for cannot.
         script = (
             "import asyncio; from bot.handlers.badword_detector import detect_badword_details as check; "
-            "assert asyncio.run(check('u'*4096)) is None; "
+            "assert asyncio.run(check('u'*20000)) is None; "
             "assert asyncio.run(check('а'*4096)) is None"
         )
         result = subprocess.run([sys.executable,'-c',script],

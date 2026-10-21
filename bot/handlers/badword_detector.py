@@ -304,7 +304,7 @@ def _reload_badwords_if_needed() -> None:
 _LETTERS = r"A-Za-zÀ-ÖØ-öø-ÿĀ-ſ\u0370-\u052f"
 _ATOM = '['+_LETTERS+r"0-9@#$+!|']"
 TOKENS_RE = re.compile(_ATOM+'{3,}')
-NOISY_TOKENS_RE = re.compile(_ATOM+r"+(?:[._*~`:/\\,;?()\[\]{}-]+"+_ATOM+r"+)+")
+NOISY_TOKENS_RE = re.compile(r'(?<!'+_ATOM+')'+_ATOM+r"+(?:[._*~`:/\\,;?()\[\]{}-]+"+_ATOM+r"+)+")
 SPELLED_TOKENS_RE = re.compile(r'(?<!\w)(?:['+_LETTERS+r'0-9][ \t]+){2,}['+_LETTERS+r'0-9](?!\w)')
 KEYBOARD_LAYOUT = str.maketrans("qwertyuiop[]asdfghjkl;'zxcvbnm,.", 'йцукенгшщзхъфывапролджэячсмитьбю')
 
