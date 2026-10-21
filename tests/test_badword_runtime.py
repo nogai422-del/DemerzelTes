@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 from pathlib import Path
 import subprocess
 import sys
@@ -9,6 +10,32 @@ from bot.handlers import badword_detector as detector
 
 
 class DetectorRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_mixed_script_and_digit_combinations(self):
+        cases = 0
+        for letters in (
+            [('п','p','n'),('и','i','1'),('з','z','3'),('д','d','9'),('а','a','4')],
+            [('х','x','h','χ'),('у','y','υ'),('й','u','j')],
+        ):
+            for chars in itertools.product(*letters):
+                for separator in ('','*','_','.'):
+                    token = separator.join(chars)
+                    self.assertIsNotNone(await detector.detect_badword_details(token),token)
+                    cases += 1
+        self.assertGreater(cases,1000)
+
+    async def test_transliteration_layout_and_unicode(self):
+        for token in ('blyad', 'blyat', 'shlyuha', 'п и з д а', 'х у й',
+                      ',kznm', 'gbplf', 'х\u200bу\u200bй', 'ｂｌｙａｄ',
+                      'хххууууййй', 'б***л___я...дь'):
+            self.assertIsNotNone(await detector.detect_badword_details(token),token)
+
+    async def test_neutral_exceptions_do_not_exempt_other_words(self):
+        for word in ('трахея','трахеит','страхуй','подстрахуйте','мандарин',
+                     'мандат','командир','хлеб','ребенок','потреблять','учебник',
+                     'бляшка','серебристый','хулиганство'):
+            self.assertIsNone(await detector.detect_badword_details(word),word)
+            self.assertIsNotNone(await detector.detect_badword_details(word+' пиздец'),word)
+
     async def test_dictionary_words_and_obfuscations_remain_detected(self):
         for word in detector.prefix_words+detector.exact_words:
             normalized = detector._normalize_to_cyr(word)

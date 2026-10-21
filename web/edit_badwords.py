@@ -31,7 +31,7 @@ def _normalize_words(raw: str) -> list[str]:
 def _read_words(path: Path) -> list[str]:
     if not path.exists():
         return []
-    return [line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.lstrip().startswith('#')]
 
 
 # Роут редактирования словаря матов.
@@ -86,6 +86,8 @@ async def edit_badwords():
         "edit_badwords.html",
         prefixes_content=" ".join(prefixes),
         exact_words_content=" ".join(exact_words),
+        prefixes_count=len(prefixes),
+        exact_words_count=len(exact_words),
         textarea_height=textarea_height,
         saved=request.args.get("saved"),
         csrf=request.args.get("csrf"),

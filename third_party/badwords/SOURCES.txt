@@ -1,0 +1,22 @@
+Russian profanity data sources and transformations
+
+1. safetext by DeepSafe, MIT license, copyright (c) 2023 DeepSafe.
+   https://github.com/viddexa/safetext
+   Commit afe96c8053e577e7e1e3a2eb5c9503ac157efbb5
+   Input safetext/languages/ru/words.txt
+   Filtered to reviewed obscene families, deduplicated and folded to lowercase.
+   Medical terms and neutral entries from the aggregate are excluded.
+   Full MIT notice: MIT-safetext.txt.
+
+2. OpenCorpora Russian dictionary, CC BY-SA 3.0.
+   https://opencorpora.org/dict.php
+   License: https://creativecommons.org/licenses/by-sa/3.0/legalcode
+   Accessed through pymorphy3-dicts-ru 2.4.417150.4580142 and pymorphy3 2.0.6.
+   Known word inflections matching the selected obscene families were extracted;
+   model-guessed parses were not used. Runtime needs no morphology package.
+
+The expanded badwords_exact.txt data including extracted inflections is
+redistributed under CC BY-SA 3.0 (license URI above). Existing entries retained.
+The data license does not change the license for the bot source code.
+Rebuild: install pymorphy3==2.0.6 in a build environment, then run
+python tools/build_badwords.py /path/to/safetext/languages/ru/words.txt
