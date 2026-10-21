@@ -14,7 +14,7 @@ BADWORDS_PREFIXES_PATH = HANDLERS_DIR / "badwords_prefixes.txt"
 BADWORDS_EXACT_PATH = HANDLERS_DIR / "badwords_exact.txt"
 
 # Разрешаем только буквы (ru/en/ua) и цифры; всё остальное считаем разделителями.
-TOKEN_RE = re.compile(r"[0-9A-Za-z\u0400-\u04FF]+", re.UNICODE)
+TOKEN_RE = re.compile(r"[0-9A-Za-z\u0400-\u04FF]+(?:-[0-9A-Za-z\u0400-\u04FF]+)*", re.UNICODE)
 
 
 # Приводит сырой ввод к валидному набору слов: без дублей, без спецсимволов, в lowercase.

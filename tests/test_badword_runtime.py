@@ -10,6 +10,11 @@ from bot.handlers import badword_detector as detector
 
 
 class DetectorRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    def test_dictionary_editor_preserves_compounds(self):
+        from web.edit_badwords import _normalize_words
+        self.assertEqual(_normalize_words('сунь-хуй-в-чай собака-засранец'),
+                         ['собака-засранец', 'сунь-хуй-в-чай'])
+
     async def test_mixed_script_and_digit_combinations(self):
         cases = 0
         for letters in (
