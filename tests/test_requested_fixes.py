@@ -35,13 +35,27 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
                 await cur.execute(f'DELETE FROM {table}')
         await set_restrict_new_members_telegram(True)
 
-    async def test_pre_bv_messages_are_blocked(self):
-        message = NS(chat=NS(id=CHAT), from_user=user(44), content_type='text', bot=NS())
+    async def test_pre_bv_media_is_blocked(self):
+        message = NS(chat=NS(id=CHAT), from_user=user(44), content_type='photo', bot=NS())
         with patch.object(moderation, 'get_permission_level', AsyncMock(return_value=0)), patch.object(moderation, 'is_command_admin', AsyncMock(return_value=False)), patch.object(moderation, 'safe_delete', AsyncMock()) as delete, patch.object(moderation, 'sync_form_permissions', AsyncMock()) as sync, patch.object(moderation, 'send_restriction_warning', AsyncMock()), patch.object(moderation, 'moderation_handle_text', AsyncMock()) as text:
             self.assertTrue(await moderation.moderation_handle_message(message))
             delete.assert_awaited_once_with(message)
             sync.assert_awaited_once_with(message.bot, CHAT, 44, 'new')
             text.assert_not_awaited()
+
+    async def test_pre_bv_text_uses_normal_text_moderation(self):
+        message = NS(chat=NS(id=CHAT), from_user=user(44), content_type='text', bot=NS())
+        with patch.object(moderation, 'get_permission_level', AsyncMock(return_value=0)), patch.object(moderation, 'safe_delete', AsyncMock()) as delete, patch.object(moderation, 'moderation_handle_text', AsyncMock(return_value=False)) as text:
+            self.assertFalse(await moderation.moderation_handle_message(message))
+            text.assert_awaited_once_with(message, 0)
+            delete.assert_not_awaited()
+
+    async def test_pre_bv_emoji_blocked_even_with_grant(self):
+        message = NS(chat=NS(id=CHAT), from_user=user(44), text='smile', caption=None, bot=NS())
+        with patch.object(moderation, 'is_user_muted', AsyncMock(return_value=False)), patch.object(moderation, 'detect_badword_details', AsyncMock(return_value=None)), patch.object(moderation, 'message_has_link', AsyncMock(return_value=False)), patch.object(moderation, 'message_emoji_count', AsyncMock(return_value=1)), patch.object(moderation, 'has_emoji_permission', AsyncMock(return_value=True)), patch.object(moderation, 'safe_delete', AsyncMock()) as delete, patch.object(moderation, 'send_emoji_deleted_log', AsyncMock()), patch.object(moderation, 'send_restriction_warning', AsyncMock()) as warning:
+            self.assertTrue(await moderation.moderation_handle_text(message, 0))
+            delete.assert_awaited_once_with(message)
+            warning.assert_awaited_once_with(message, 'emoji')
 
     async def test_exact_duration_for_all_categories(self):
         with patch.object(donations.time,'time',return_value=NOW):
@@ -87,7 +101,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
 
     async def test_permissions_for_all_stages_and_mutes(self):
         bot=NS(get_chat_member=AsyncMock(return_value=NS(status=ChatMemberStatus.MEMBER)),restrict_chat_member=AsyncMock())
-        for stage, text, media in [('new',False,False),('filling',True,False),('saved',True,True)]:
+        for stage, text, media in [('new',True,False),('filling',True,False),('saved',True,True)]:
             await onboarding.sync_form_permissions(bot,CHAT,30,stage)
             permissions=bot.restrict_chat_member.call_args.kwargs['permissions']
             self.assertEqual(permissions.can_send_messages,text)

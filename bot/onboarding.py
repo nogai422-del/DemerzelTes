@@ -9,7 +9,7 @@ from bot.warning_state import FORM_STAGE_NEW, FORM_STAGE_FILLING, FORM_STAGE_SAV
 def form_permissions(stage: str) -> ChatPermissions:
     saved = stage == FORM_STAGE_SAVED
     return ChatPermissions(
-        can_send_messages=stage in (FORM_STAGE_FILLING, FORM_STAGE_SAVED),
+        can_send_messages=True,
         can_send_photos=saved, can_send_videos=saved, can_send_video_notes=saved,
         can_send_audios=saved, can_send_voice_notes=saved, can_send_documents=saved,
         can_send_other_messages=saved, can_add_web_page_previews=saved,

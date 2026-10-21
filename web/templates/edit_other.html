@@ -10,7 +10,7 @@
 {% block content %}
 <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <section class="section-card">
-    <div class="section-header"><div><h2>Права новых участников</h2><p>До /bv сообщения запрещены, между /bv и /save доступен только текст, после /save доступны все виды сообщений и реакций.</p></div><span class="section-icon">◉</span></div>
+    <div class="section-header"><div><h2>Права новых участников</h2><p>До /bv и между /bv и /save доступен только текст без смайликов и медиа, после /save доступны все виды сообщений и реакций.</p></div><span class="section-icon">◉</span></div>
     <label class="setting-toggle">
       <input type="checkbox" name="chat_behavior[restrict_new_members_telegram]" value="1" {% if restrict_new_members_telegram %}checked{% endif %}>
       <span class="setting-toggle-copy">

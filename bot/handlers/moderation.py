@@ -1306,7 +1306,8 @@ async def moderation_handle_text(message: Message, level: int) -> bool:
     emojis_count = await message_emoji_count(message)
 
     if emojis_count > 0:
-        if not await has_emoji_permission(chat_id, user_id):
+        if (await get_restrict_new_members_telegram()
+                and await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW) or not await has_emoji_permission(chat_id, user_id):
             await safe_delete(message)
             await send_emoji_deleted_log(message, emojis_count, "нет активного доступа к смайликам")
 
@@ -1347,7 +1348,8 @@ async def moderation_handle_message(message: Message) -> bool:
     content_type = message.content_type
     level = await get_permission_level(chat_id, user_id)
 
-    if (await get_restrict_new_members_telegram()
+    if (content_type != "text"
+            and await get_restrict_new_members_telegram()
             and await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW
             and not await is_command_admin(message.bot, chat_id, user_id, owner_id=COSMOS_ID)):
         await safe_delete(message)
