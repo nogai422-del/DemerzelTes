@@ -20,8 +20,8 @@ from bot.notification_delivery import resolve_notification_source_path, send_not
 from bot.utils import normalize_telegram_button_url
 
 DAY_SECONDS = 86400
-DEFAULT_LONG_PACKAGE_MIN_DAYS = 28
-DEFAULT_PREEXPIRY_NOTICE_DAYS = 3
+DEFAULT_LONG_PACKAGE_MIN_DAYS = 1
+DEFAULT_PREEXPIRY_NOTICE_DAYS = 2
 CHECK_INTERVAL_SECONDS = 60
 _SCHEMA_READY = False
 
@@ -144,8 +144,8 @@ async def ensure_donation_schema() -> None:
                 viewd_delete_seconds     INTEGER NOT NULL DEFAULT 30,
                 viewmd_delete_seconds    INTEGER NOT NULL DEFAULT 30,
                 preexpiry_enabled        INTEGER NOT NULL DEFAULT 1,
-                long_package_min_days    INTEGER NOT NULL DEFAULT 28,
-                preexpiry_notice_days    INTEGER NOT NULL DEFAULT 3
+                long_package_min_days    INTEGER NOT NULL DEFAULT 1,
+                preexpiry_notice_days    INTEGER NOT NULL DEFAULT 2
             )
             """
         )
@@ -169,11 +169,11 @@ async def ensure_donation_schema() -> None:
             )
         if "long_package_min_days" not in settings_columns:
             await cur.execute(
-                "ALTER TABLE donation_settings ADD COLUMN long_package_min_days INTEGER NOT NULL DEFAULT 28"
+                "ALTER TABLE donation_settings ADD COLUMN long_package_min_days INTEGER NOT NULL DEFAULT 1"
             )
         if "preexpiry_notice_days" not in settings_columns:
             await cur.execute(
-                "ALTER TABLE donation_settings ADD COLUMN preexpiry_notice_days INTEGER NOT NULL DEFAULT 3"
+                "ALTER TABLE donation_settings ADD COLUMN preexpiry_notice_days INTEGER NOT NULL DEFAULT 2"
             )
 
         await cur.execute(
@@ -182,7 +182,7 @@ async def ensure_donation_schema() -> None:
                 id, voice_daily_limit, emoji_daily_limit, video_note_daily_limit,
                 viewd_delete_seconds, viewmd_delete_seconds,
                 preexpiry_enabled, long_package_min_days, preexpiry_notice_days
-            ) VALUES (1, 20, 50, 10, 30, 30, 1, 28, 3)
+            ) VALUES (1, 20, 50, 10, 30, 30, 1, 1, 2)
             """
         )
 
@@ -355,6 +355,15 @@ async def record_donation_grant(
                 max(0, int(daily_limit or 0)), now,
             ),
         )
+
+
+async def set_donation_grant_duration(chat_id: int, user_id: int, category: str, days: int, daily_limit: int | None = None) -> tuple[int, int]:
+    """Выдаёт ровно days суток от текущего момента, без скрытого продления."""
+    if not 1 <= days <= 36500:
+        raise ValueError("Количество дней должно быть от 1 до 36500")
+    valid_until = int(time.time()) + days * DAY_SECONDS
+    await record_donation_grant(chat_id,user_id,category,valid_until,days,daily_limit)
+    return valid_until, days
 
 
 async def extend_donation_grant(
@@ -1025,9 +1034,8 @@ async def send_reaction_denied_notification(
     *,
     chat_id: int,
     user_id: int,
-    message_id: int,
 ) -> None:
-    """Отправляет предупреждение после удаления реакции без уровня «Медиа 2»."""
+    """Пишет автору реакции без reply на сообщение постороннего участника."""
     await ensure_donation_schema()
     now = int(time.time())
     grant = {
@@ -1070,7 +1078,7 @@ async def _load_due_grants(
                 SELECT chat_id, user_id, category, valid_until, package_days, daily_limit
                 FROM donation_grants
                 WHERE category IN ('voice', 'emoji', 'tag', 'video_note')
-                  AND package_days >= ?
+                  AND (package_days >= ? OR package_days = 0)
                   AND preexpiry_sent = 0
                   AND expired_sent = 0
                   AND valid_until > ?

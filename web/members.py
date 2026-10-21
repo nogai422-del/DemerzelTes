@@ -16,7 +16,7 @@ from aiogram import Bot
 from flask import Blueprint, redirect, render_template, request, session
 
 from bot.database import DB_PATH, db
-from bot.donations import CATEGORY_TITLES, ensure_donation_schema, extend_donation_grant
+from bot.donations import CATEGORY_TITLES, ensure_donation_schema, set_donation_grant_duration
 from bot.schema import ensure_database_ready
 from bot.telethon_sync import configured as telethon_configured, ensure_sync_schema, get_sync_state, sync_chat_members
 from env_config import require_env
@@ -242,7 +242,7 @@ async def members():
             if chat_id >= 0 or user_id <= 0 or days <= 0 or category not in CATEGORY_TITLES:
                 return _members_redirect(error="grant")
 
-            valid_until, _ = await extend_donation_grant(
+            valid_until, _ = await set_donation_grant_duration(
                 chat_id,
                 user_id,
                 category,

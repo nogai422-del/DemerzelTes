@@ -97,8 +97,8 @@ async def edit_donation_notifications():
             enabled=request.form.get("expiry_settings[enabled]") == "1",
             min_package_days=_bounded_int(
                 "expiry_settings[min_package_days]",
-                int(current_expiry_settings.get("min_package_days", 28)),
-                28,
+                int(current_expiry_settings.get("min_package_days", 1)),
+                1,
                 3650,
             ),
             notice_days=_bounded_int(

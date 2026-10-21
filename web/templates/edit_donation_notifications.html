@@ -11,7 +11,7 @@
 {% endblock %}
 {% block content %}
 <div class="info-panel">
-  <p>Короткие пакеты получают сообщение об истечении. Для долгих пакетов можно включить отдельное предупреждение за 2 или 3 дня до завершения.</p>
+  <p>Настройте предупреждение до окончания и сообщение после истечения срока для тега, смайликов, голосовых и кружков.</p>
   <p>Подстановки: <code>{user}</code>, <code>{full_name}</code>, <code>{user_id}</code>, <code>{category}</code>, <code>{valid_until}</code>, <code>{days_left}</code>, <code>{limit}</code>, <code>{used_today}</code>.</p>
 </div>
 <form method="POST" enctype="multipart/form-data">
@@ -28,14 +28,14 @@
     <div class="form-grid">
       <div class="form-group">
         <label>Длительный пакет — от, дней</label>
-        <input type="number" min="28" max="3650" name="expiry_settings[min_package_days]" value="{{ expiry_settings.get('min_package_days', 28) }}" required>
-        <span class="field-help">По задаче значение по умолчанию — 28 дней. Порог можно увеличить.</span>
+        <input type="number" min="1" max="3650" name="expiry_settings[min_package_days]" value="{{ expiry_settings.get('min_package_days', 1) }}" required>
+        <span class="field-help">По умолчанию предупреждения включены для пакетов любой длительности.</span>
       </div>
       <div class="form-group">
         <label>Предупредить за, дней</label>
         <select name="expiry_settings[notice_days]" required>
-          <option value="2" {% if expiry_settings.get('notice_days', 3) == 2 %}selected{% endif %}>2 дня</option>
-          <option value="3" {% if expiry_settings.get('notice_days', 3) == 3 %}selected{% endif %}>3 дня</option>
+          <option value="2" {% if expiry_settings.get('notice_days', 2) == 2 %}selected{% endif %}>2 дня</option>
+          <option value="3" {% if expiry_settings.get('notice_days', 2) == 3 %}selected{% endif %}>3 дня</option>
         </select>
         <span class="field-help">Если бот был перезапущен внутри окна предупреждения, он отправит уведомление при ближайшей проверке.</span>
       </div>

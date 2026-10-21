@@ -79,6 +79,7 @@ async def run_bot():
         return
     except Exception as e:
         print(f"Ошибка run_bot: {e}")
+        raise
 
 
 def setup_signal_handlers(loop, stop_event):

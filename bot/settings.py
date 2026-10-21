@@ -43,11 +43,7 @@ async def ensure_chat_behavior_schema() -> None:
 
 
 async def get_restrict_new_members_telegram() -> bool:
-    """Возвращает состояние старого Telegram-ограничения при входе.
-
-    По умолчанию функция выключена: доступами управляет новый алгоритм бота,
-    а Telegram не урезает медиа-права участника сразу после присоединения.
-    """
+    """Включены ли права Telegram по этапам: до /bv, заполнение, сохранение."""
     await ensure_chat_behavior_schema()
     async with db() as cur:
         await cur.execute(
@@ -62,7 +58,7 @@ async def get_restrict_new_members_telegram() -> bool:
 
 
 async def set_restrict_new_members_telegram(enabled: bool) -> None:
-    """Включает или выключает прежнее ограничение новых участников в Telegram."""
+    """Включает или выключает права Telegram по этапам заполнения анкеты."""
     await ensure_chat_behavior_schema()
     async with db() as cur:
         await cur.execute(

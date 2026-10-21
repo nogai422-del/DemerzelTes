@@ -10,7 +10,7 @@ from aiogram.utils.formatting import html_decoration as hd
 from bot.database import db
 from bot.donations import (
     check_and_update_usage_limit,
-    extend_donation_grant,
+    set_donation_grant_duration,
     get_active_donation_statuses,
     get_donation_view_timers,
     get_usage_limits,
@@ -27,6 +27,8 @@ from bot.message_templates import get_message_template, render_template, send_co
 from bot.notification_delivery import send_notification_card
 from bot.donation_revoke_settings import get_revoke_settings, log_revoke_action, render_revoke_text
 from bot.settings import get_pre_bv_notification_mode
+from bot.settings import get_restrict_new_members_telegram
+from bot.onboarding import sync_form_permissions
 from bot.handlers.badword_detector import detect_badword_details
 from bot.handlers.emoji_detector import message_emoji_count
 from bot.utils import (
@@ -143,6 +145,24 @@ async def send_badword_deleted_log(
         )
     except Exception as e:
         print(f"Ошибка отправки badword-лога: {e}")
+
+
+async def send_emoji_deleted_log(message: Message, count: int, reason: str) -> None:
+    """Пишет в тот же канал событий исходный текст удалённого сообщения."""
+    if not LOG_CHANNEL_ID or message.chat.id != SOURCE_CHAT_ID or not message.from_user:
+        return
+    try:
+        user = message.from_user
+        source = (message.text or message.caption or '<без текста>')[:1200]
+        text = (
+            f"{hd.quote(message.chat.title or str(message.chat.id))}\n{tag_chat(message.chat.id)}\n\n"
+            f'<a href="tg://user?id={user.id}">{hd.quote(await get_full_name(user))}</a>\n{tag_user(user.id)}\n\n'
+            f"Удалено сообщение со смайликами\nПричина: {hd.quote(reason)}\nСмайликов: {count}\n"
+            f"<blockquote expandable>{hd.quote(source)}</blockquote>\n#emoji_deleted"
+        )
+        await bot_send_message(message.bot, LOG_CHANNEL_ID, text, wait=True, parse_mode='HTML', disable_web_page_preview=True)
+    except Exception as exc:
+        print(f"Ошибка отправки emoji-лога: {exc}")
 
 
 # Проверяет наличие ссылок в entities/caption_entities сообщения.
@@ -716,7 +736,7 @@ async def voice_allow_handler(message: Message, bot: Bot):
         days, daily_limit = parsed
 
         target_user = message.reply_to_message.from_user
-        valid_until, _ = await extend_donation_grant(
+        valid_until, _ = await set_donation_grant_duration(
             chat_id, target_user.id, "voice", days, daily_limit=daily_limit
         )
         full_name = hd.quote(await get_full_name(target_user))
@@ -758,7 +778,7 @@ async def emoji_allow_handler(message: Message, bot: Bot):
         days, daily_limit = parsed
 
         target_user = message.reply_to_message.from_user
-        valid_until, _ = await extend_donation_grant(
+        valid_until, _ = await set_donation_grant_duration(
             chat_id, target_user.id, "emoji", days, daily_limit=daily_limit
         )
         full_name = hd.quote(await get_full_name(target_user))
@@ -800,7 +820,7 @@ async def video_note_allow_handler(message: Message, bot: Bot):
         days, daily_limit = parsed
 
         target_user = message.reply_to_message.from_user
-        valid_until, _ = await extend_donation_grant(
+        valid_until, _ = await set_donation_grant_duration(
             chat_id, target_user.id, "video_note", days, daily_limit=daily_limit
         )
         full_name = hd.quote(await get_full_name(target_user))
@@ -850,7 +870,7 @@ async def tag_allow_handler(message: Message, bot: Bot):
             return
 
         target_user = message.reply_to_message.from_user
-        valid_until, _ = await extend_donation_grant(
+        valid_until, _ = await set_donation_grant_duration(
             chat_id, target_user.id, "tag", days
         )
 
@@ -1059,6 +1079,7 @@ async def _build_donation_view_values(
 ) -> dict[str, str]:
     """Готовит безопасные переменные для гибкого шаблона /viewd и /viewmd."""
     level = await get_permission_level(chat_id, user_id)
+
     grants = await get_active_donation_statuses(chat_id, user_id)
 
     safe_name = hd.quote(full_name or "Пользователь")
@@ -1287,6 +1308,7 @@ async def moderation_handle_text(message: Message, level: int) -> bool:
     if emojis_count > 0:
         if not await has_emoji_permission(chat_id, user_id):
             await safe_delete(message)
+            await send_emoji_deleted_log(message, emojis_count, "нет активного доступа к смайликам")
 
             await send_restriction_warning(message, "emoji")
             return True
@@ -1296,7 +1318,7 @@ async def moderation_handle_text(message: Message, level: int) -> bool:
         )
         if not allowed:
             await safe_delete(message)
-
+            await send_emoji_deleted_log(message, emojis_count, "исчерпан суточный лимит")
             await send_usage_limit_notification(
                 message.bot,
                 chat_id=chat_id,
@@ -1324,6 +1346,17 @@ async def moderation_handle_message(message: Message) -> bool:
     user_id = message.from_user.id
     content_type = message.content_type
     level = await get_permission_level(chat_id, user_id)
+
+    if (await get_restrict_new_members_telegram()
+            and await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW
+            and not await is_command_admin(message.bot, chat_id, user_id, owner_id=COSMOS_ID)):
+        await safe_delete(message)
+        try:
+            await sync_form_permissions(message.bot, chat_id, user_id, FORM_STAGE_NEW)
+        except Exception as exc:
+            print(f"Ошибка ограничения до /bv: {exc}")
+        await send_restriction_warning(message, 'other_media')
+        return True
 
     # Сначала единая текстовая проверка (мат/ссылки/эмодзи/мут).
     if await moderation_handle_text(message, level):

@@ -102,7 +102,6 @@ async def enforce_reaction_media_level(
                 bot,
                 chat_id=chat_id,
                 user_id=user_id,
-                message_id=int(event.message_id),
             )
     except asyncio.CancelledError:
         raise

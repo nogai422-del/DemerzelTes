@@ -10,17 +10,17 @@
 {% block content %}
 <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <section class="section-card">
-    <div class="section-header"><div><h2>Права новых участников</h2><p>Управление старым Telegram-ограничением, которое урезало медиа-права сразу при входе.</p></div><span class="section-icon">◉</span></div>
+    <div class="section-header"><div><h2>Права новых участников</h2><p>До /bv сообщения запрещены, между /bv и /save доступен только текст, после /save доступны все виды сообщений и реакций.</p></div><span class="section-icon">◉</span></div>
     <label class="setting-toggle">
       <input type="checkbox" name="chat_behavior[restrict_new_members_telegram]" value="1" {% if restrict_new_members_telegram %}checked{% endif %}>
       <span class="setting-toggle-copy">
         <strong>Ограничивать новых участников средствами Telegram</strong>
-        <small>Сейчас рекомендуется оставить выключенным: доступами управляет новый алгоритм бота. Старый механизм сохранён только как аварийный переключатель.</small>
+        <small>Права Telegram автоматически меняются при входе, выдаче анкеты и её сохранении.</small>
       </span>
     </label>
     <div class="notice notice-info compact-notice">
       <span class="notice-icon">i</span>
-      <div><strong>Текущее состояние: {{ 'включено' if restrict_new_members_telegram else 'выключено' }}</strong>При выключенном переключателе бот не меняет пункт «Отправка медиафайлов» в Telegram после входа пользователя.</div>
+      <div><strong>Текущее состояние: {{ 'включено' if restrict_new_members_telegram else 'выключено' }}</strong>При выключенном переключателе права при входе и выдаче анкеты не меняются.</div>
     </div>
   </section>
   <section class="section-card">

@@ -14,6 +14,7 @@ from bot.utils import (
 from bot.handlers.moderation import is_user_muted, send_restriction_warning
 from bot.warning_state import clear_warning, mark_form_saved, mark_form_started, get_form_stage, FORM_STAGE_SAVED
 from env_config import require_int_env
+from bot.onboarding import sync_form_permissions
 
 import asyncio
 import html
@@ -123,8 +124,8 @@ async def handle_save_command(message: Message, bot):
                 # Это отдельный уровень прав Telegram и не заменяет внутреннюю модерацию бота.
                 restrictions_removed = False
                 try:
-                    if not is_admin and is_own_update:
-                        # Самостоятельное обновление текста не меняет права Telegram.
+                    if await is_user_muted(chat_id, user_id) or (not is_admin and is_own_update):
+                        # Сохранение анкеты не снимает действующий мут.
                         restrictions_removed = True
                     else:
                         permissions = ChatPermissions(
@@ -137,6 +138,8 @@ async def handle_save_command(message: Message, bot):
                             can_send_documents=True,
                             can_send_other_messages=True,
                             can_add_web_page_previews=True,
+                            can_send_polls=True,
+                            can_react_to_messages=True,
                         )
                         await bot.restrict_chat_member(
                             chat_id,
@@ -271,17 +274,33 @@ async def handle_bv_command(message: Message):
             return
 
         replied = message.reply_to_message
-        if not replied or not replied.from_user:
+        args = (message.text or '').split()
+        target = None
+        if len(args) == 2 and args[1].isdigit():
+            member = await message.bot.get_chat_member(chat_id, int(args[1]))
+            if not is_in_chat_member(member):
+                await bot_answer(message, "Участник не состоит в этом чате.")
+                return
+            target = member.user
+            replied = None
+        elif replied:
+            joined = getattr(replied, 'new_chat_members', None) or []
+            if len(joined) == 1:
+                target = joined[0]
+                replied = None
+            elif not joined and not getattr(replied, 'sender_chat', None):
+                target = replied.from_user
+        if target is None or target.is_bot:
             sent = await bot_answer(
                 message,
-                "Для отправки формы вызовите /bv в ответ на сообщение пользователя.",
+                "Вызовите /bv в ответ на сообщение участника или используйте /bv Telegram_ID. Можно ответить на сообщение о вступлении одного участника.",
                 wait=True,
             )
             if sent:
                 await save_timed_message(chat_id, sent.message_id)
             return
 
-        target_id = replied.from_user.id
+        target_id = target.id
         lock = _bv_locks.setdefault((chat_id, target_id), asyncio.Lock())
         async with lock:
             async with db() as cur:
@@ -303,7 +322,11 @@ async def handle_bv_command(message: Message):
             if not form_text:
                 form_text = "Шаблон анкеты пока не настроен администратором."
 
-            sent = await bot_reply(replied, form_text, parse_mode="HTML", wait=True)
+            if replied:
+                sent = await bot_reply(replied, form_text, parse_mode="HTML", wait=True)
+            else:
+                name = html.escape(await get_full_name(target))
+                sent = await bot_answer(message, f'<a href="tg://user?id={target_id}">{name}</a>\n\n{form_text}', parse_mode="HTML", wait=True)
             if sent:
                 async with db() as cur:
                     await cur.execute(
@@ -314,6 +337,11 @@ async def handle_bv_command(message: Message):
                         (chat_id, target_id, sent.message_id, int(time.time())),
                     )
                 await mark_form_started(chat_id, target_id)
+                try:
+                    await sync_form_permissions(message.bot, chat_id, target_id)
+                except Exception as exc:
+                    print(f"Ошибка прав после /bv: {exc}")
+                    await bot_answer(message, "Анкета выдана, но открыть текстовые сообщения не удалось. Администратору нужно проверить права бота и повторить /bv.")
                 # При переходе к заполнению убираем старую общую карточку.
                 await clear_warning(message.bot, chat_id, target_id)
     except Exception as e:
@@ -605,7 +633,6 @@ async def handle_ban_command(message: Message, bot: Bot):
         await bot.ban_chat_member(chat_id, target_id)
 
         sent = await bot_answer(message, f"Пользователь {full_name} был забанен.", wait=True)
-        await save_timed_message(chat_id, sent.message_id)
     except Exception as e:
         print("Ошибка /ban:", e)
 
@@ -644,7 +671,6 @@ async def handle_kick_command(message: Message, bot: Bot):
         await bot.unban_chat_member(chat_id, target_id)
 
         sent = await bot_answer(message, f"Пользователь {full_name} был кикнут из чата.", wait=True)
-        await save_timed_message(chat_id, sent.message_id)
     except Exception as e:
         print("Ошибка /kick:", e)
 
