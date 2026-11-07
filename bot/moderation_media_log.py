@@ -37,8 +37,8 @@ async def delete_with_media_log(message):
     name = ' '.join(filter(None, (user.first_name, getattr(user, 'last_name', None))))
     username = getattr(user, 'username', None)
     identity = html.escape(name or str(user.id))
-    text = (f'<b>Удалено модерацией: {MEDIA_TITLES[kind]}</b>\n'
-            f'Участник: <a href="tg://user?id={user.id}">{identity}</a>'
+    text = (f'#deleted_media\n<b>Удалено модерацией: {MEDIA_TITLES[kind]}</b>\n'
+            f'<a href="tg://user?id={user.id}">{identity}</a>'
             f' · <code>{user.id}</code>')
     if username:
         text += f' · @{html.escape(username)}'

@@ -305,8 +305,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
         message=NS(chat=NS(id=CHAT,title='Test group'),from_user=user(10),text='Text 😀',caption=None,bot=NS())
         with patch.object(moderation,'safe_delete',AsyncMock()), patch.object(moderation,'is_user_muted',AsyncMock(return_value=False)), patch.object(moderation,'detect_badword_details',AsyncMock(return_value=None)), patch.object(moderation,'message_has_link',AsyncMock(return_value=False)), patch.object(moderation,'has_emoji_permission',AsyncMock(return_value=False)), patch.object(moderation,'send_restriction_warning',AsyncMock()), patch.object(moderation,'bot_send_message',AsyncMock()) as log:
             self.assertTrue(await moderation.moderation_handle_text(message,2))
-            self.assertIn('Удалено сообщение со смайликами',log.call_args.args[2])
-            self.assertNotIn('#emoji_deleted',log.call_args.args[2])
+            self.assertIn('#emoji_deleted',log.call_args.args[2])
             self.assertIn('Text 😀',log.call_args.args[2])
 
 

@@ -1,7 +1,6 @@
 # Аудит изменений участников чата: join/leave/ban и изменения прав.
 
 import asyncio
-from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 
@@ -26,55 +25,15 @@ router = Router()
 KICK_GROUP_WINDOW = 1.0
 PENDING_KICK: dict[tuple[int, int], asyncio.Task] = {}
 
-EVENT_TITLES = {
-    'new_member': 'Вступил в группу',
-    'member_rejoined': 'Вернулся в группу',
-    'member_left': 'Вышел из группы',
-    'member_banned': 'Забанен',
-    'member_kicked': 'Удалён из группы',
-    'member_unbanned': 'Разбанен',
-    'admin_granted': 'Назначен администратором',
-    'admin_revoked': 'Снят с должности администратора',
-    'member_restricted': 'Ограничены права',
-    'member_unrestricted': 'Ограничения сняты',
-    'rights_changed': 'Изменены права',
-}
-EVENT_DETAILS = {
-    'member_rejoined': 'Участник повторно вступил в группу.',
-    'member_banned': 'Участник удалён. Повторный вход в группу запрещён.',
-    'member_kicked': 'Участник удалён, но может вступить снова.',
-    'member_unbanned': 'Повторный вход разрешён. Участник ещё не вернулся в группу.',
-}
-STATUS_TITLES = {
-    'creator': 'Владелец', 'administrator': 'Администратор', 'member': 'Участник',
-    'restricted': 'Участник с ограничениями', 'left': 'Не в группе', 'kicked': 'Забанен',
-}
-MOSCOW = timezone(timedelta(hours=3))
-
-
-def status_title(member):
-    status = effective_status(member)
-    return STATUS_TITLES.get(getattr(status, 'value', status), 'Статус изменён')
-
-
-def event_date_text(value):
-    if isinstance(value, (int, float)):
-        value = datetime.fromtimestamp(value, timezone.utc)
-    if not isinstance(value, datetime) or value.year <= 1970:
-        return 'Без срока'
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(MOSCOW).strftime('%d.%m.%Y %H:%M МСК')
-
 USER_RIGHTS = [
     ("can_send_messages", "Отправка сообщений"),
-    ("can_send_photos", "Фото"),
+    ("can_send_photos", "Фотографий"),
     ("can_send_videos", "Видео"),
-    ("can_send_video_notes", "Кружки"),
-    ("can_send_audios", "Музыка и аудиофайлы"),
-    ("can_send_voice_notes", "Голосовые сообщения"),
-    ("can_send_documents", "Файлы"),
-    ("can_send_other_messages", "Стикеры и GIF"),
+    ("can_send_video_notes", "Видеосообщений"),
+    ("can_send_audios", "Музыки"),
+    ("can_send_voice_notes", "Голосовых сообщений"),
+    ("can_send_documents", "Файлов"),
+    ("can_send_other_messages", "Стикеров и GIF"),
     ("can_add_web_page_previews", "Предпросмотр ссылок"),
     ("can_send_polls", "Создание опросов"),
     ("can_invite_users", "Добавление участников"),
@@ -129,7 +88,7 @@ def snapshot(member, rights_map):
             continue
         v = getattr(member, field, None)
         if isinstance(v, bool):
-            lines.append(f"{'✅ Разрешено' if v else '⛔ Запрещено'}: {label}")
+            lines.append(f"{'+' if v else '-'} {label}")
     return lines
 
 
@@ -192,7 +151,7 @@ async def send_log(event, event_tag, old, new, added, removed, change_lines):
         rights_lines = snapshot(new, ADMIN_RIGHTS)
 
     elif event_tag in FORCE_USER_SNAPSHOT:
-        rights_title = "Права участника в Telegram:"
+        rights_title = "Права участника:"
         rights_lines = snapshot(new, USER_RIGHTS)
 
     elif added or removed:
@@ -200,35 +159,24 @@ async def send_log(event, event_tag, old, new, added, removed, change_lines):
             rights_title = "Права администратора:"
             rights_lines = snapshot(new, ADMIN_RIGHTS)
         else:
-            rights_title = "Права участника в Telegram:"
+            rights_title = "Права участника:"
             rights_lines = snapshot(new, USER_RIGHTS)
 
-    blocks = [f"<b>{EVENT_TITLES.get(event_tag, 'Изменился статус участника')}</b>"]
-    if event_tag in EVENT_DETAILS:
-        blocks.append(EVENT_DETAILS[event_tag])
-    blocks.append(f"Участник: {user_link(user, fallback_username)}\nID участника: <code>{user.id}</code>")
-    blocks.append(f"Группа: {hd.quote(chat.title or str(chat.id))}\nID группы: <code>{chat.id}</code>")
-    blocks.append(f"Статус: {status_title(old)} → {status_title(new)}")
-    if getattr(event, 'date', None):
-        blocks.append(f"Время события: {event_date_text(event.date)}")
-    if event_tag in ('member_banned', 'member_restricted'):
-        blocks.append(f"Срок ограничения: {event_date_text(getattr(new, 'until_date', None))}")
+    blocks = []
+
+    blocks.append(f"{hd.quote(chat.title or str(chat.id))}\n{tag_chat(chat.id)}")
+    blocks.append(f"{user_link(user, fallback_username)}\n{tag_user(user.id)}")
 
     if actor and actor.id != user.id and not (event.invite_link and event_tag in ("new_member", "member_rejoined")):
-        blocks.append(f"Действие выполнил: {user_link(actor)}\nID: <code>{actor.id}</code>")
+        blocks.append(f"By: {user_link(actor)}\n{tag_user(actor.id)}")
 
     if change_lines:
         blocks.append("\n".join(change_lines))
 
-    labels = dict(USER_RIGHTS + ADMIN_RIGHTS)
-    if added:
-        blocks.append('Разрешено: ' + ', '.join(labels[field] for field in labels if field in added))
-    if removed:
-        blocks.append('Запрещено: ' + ', '.join(labels[field] for field in labels if field in removed))
     if rights_lines:
         blocks.append(rights_title + "\n" + "\n".join(rights_lines))
-        if rights_title == "Права участника в Telegram:":
-            blocks.append("Донатные разрешения отдельно проверяет Демерзель.")
+
+    blocks.append(f"#{event_tag}")
 
     await bot_send_message(
         event.bot,
@@ -298,7 +246,7 @@ async def log_member_changes(event: ChatMemberUpdated):
             print(f"Не удалось применить права анкеты user_id={user.id}: {exc}")
 
         if event.invite_link and event.invite_link.creator:
-            change_lines.append(f"Автор пригласительной ссылки: {user_link(event.invite_link.creator)}")
+            change_lines.append(f"Added by: {user_link(event.invite_link.creator)}")
 
         # Приветствие отправляем по факту входа/возврата (статус участника), а не по системному сообщению.
         await send_welcome_for_member(event.bot, chat.id, user)
