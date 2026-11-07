@@ -10,7 +10,7 @@
 {% block content %}
 <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <section class="section-card">
-    <div class="section-header"><div><h2>Права новых участников</h2><p>До /bv права зависят от режима на странице уведомлений. В режиме «молча» и между /bv и /save доступен только текст. В режиме «с уведомлением» права открыты, а ограничения проверяет бот. После /save действуют обычные медиа-уровни и донаты.</p></div><span class="section-icon">◉</span></div>
+    <div class="section-header"><div><h2>Права новых участников</h2><p>До /bv права зависят от режима на странице уведомлений. В режимах «молча», «с уведомлением» и между /bv и /save доступен только текст; вложения заблокированы средствами Telegram. Режим «разрешить» явно открывает функции до /bv. После /save действуют обычные медиа-уровни и донаты.</p></div><span class="section-icon">◉</span></div>
     <label class="setting-toggle">
       <input type="checkbox" name="chat_behavior[restrict_new_members_telegram]" value="1" {% if restrict_new_members_telegram %}checked{% endif %}>
       <span class="setting-toggle-copy">

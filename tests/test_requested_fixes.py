@@ -56,11 +56,16 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
                 await donations.send_reaction_denied_notification(bot,chat_id=CHAT,user_id=21)
         bot.delete_message.assert_not_awaited()
 
-    async def test_pre_bv_notify_allows_telegram_delivery_but_bot_blocks_photo(self):
+    async def test_pre_bv_notify_blocks_attachments_in_telegram_and_handles_queued_photo(self):
         await set_pre_bv_mode('notify')
         bot=NS(get_chat_member=AsyncMock(return_value=NS(status=ChatMemberStatus.MEMBER)),restrict_chat_member=AsyncMock())
         await onboarding.sync_form_permissions(bot,CHAT,30,'new')
-        self.assertTrue(bot.restrict_chat_member.call_args.kwargs['permissions'].can_send_photos)
+        permissions = bot.restrict_chat_member.call_args.kwargs['permissions']
+        self.assertTrue(permissions.can_send_messages)
+        for field in ('can_send_photos', 'can_send_videos', 'can_send_video_notes',
+                      'can_send_audios', 'can_send_voice_notes', 'can_send_documents',
+                      'can_send_other_messages', 'can_add_web_page_previews', 'can_send_polls'):
+            self.assertFalse(getattr(permissions, field), field)
         message=NS(chat=NS(id=CHAT),from_user=user(30),content_type='photo',bot=bot)
         with patch.object(moderation,'get_permission_level',AsyncMock(return_value=0)),patch.object(moderation,'is_command_admin',AsyncMock(return_value=False)),patch.object(moderation,'safe_delete',AsyncMock()),patch.object(moderation,'send_restriction_warning',AsyncMock()) as warn:
             self.assertTrue(await moderation.moderation_handle_message(message))

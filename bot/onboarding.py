@@ -30,10 +30,10 @@ async def sync_form_permissions(bot, chat_id: int, user_id: int, stage: str | No
         return False
     if stage is None:
         stage = await get_form_stage(chat_id, user_id)
-    # Для предупреждений Telegram должен пропустить сообщение к модератору.
-    # В allow ограничения не применяются, в notify сообщение удалит сам бот.
+    # Уведомления не должны открывать запрещённые вложения в Telegram.
+    # Текст (включая эмодзи) по-прежнему получает и проверяет бот.
     permissions_stage = stage
-    if stage == FORM_STAGE_NEW and await get_pre_bv_mode() in ('notify', 'allow'):
+    if stage == FORM_STAGE_NEW and await get_pre_bv_mode() == 'allow':
         permissions_stage = FORM_STAGE_SAVED
     await bot.restrict_chat_member(chat_id, user_id, permissions=form_permissions(permissions_stage), use_independent_chat_permissions=True)
     return True
