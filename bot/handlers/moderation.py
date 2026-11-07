@@ -51,6 +51,7 @@ from bot.warning_state import (
 from env_config import require_int_env
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 import re
 import time
 
@@ -123,17 +124,16 @@ async def send_badword_deleted_log(
             source_text = source_text[:3500] + "..."
 
         quoted_text = hd.quote(source_text)
-        event_time = time.strftime("%d.%m.%Y %H:%M:%S", time.localtime())
+        event_time = datetime.now(timezone(timedelta(hours=3))).strftime("%d.%m.%Y %H:%M:%S МСК")
 
         blocks = [
-            f"{chat_title}\n{tag_chat(message.chat.id)}",
-            f'<a href="tg://user?id={user.id}">👤 {full_name}</a>\n{tag_user(user.id)}',
+            f"Группа: {chat_title}\nID группы: <code>{message.chat.id}</code>",
+            f'Участник: <a href="tg://user?id={user.id}">👤 {full_name}</a>\nID: <code>{user.id}</code>',
             "Удалено сообщение за мат",
             f"Время: {event_time}",
             f"Триггер: <code>{trigger}</code> (<code>{canonical}</code>)",
             f"Тип триггера: {trigger_type_label}",
             f"<blockquote expandable>{quoted_text}</blockquote>",
-            "#badword_deleted",
         ]
 
         await bot_send_message(
@@ -160,11 +160,11 @@ async def send_emoji_deleted_log(message: Message, count: int, reason: str) -> N
             source += '\n[Текст сокращён]'
         triggers = ', '.join(await message_emoji_triggers(message))
         text = (
-            f"{hd.quote(message.chat.title or str(message.chat.id))}\n{tag_chat(message.chat.id)}\n\n"
-            f'<a href="tg://user?id={user.id}">{hd.quote(await get_full_name(user))}</a>\n{tag_user(user.id)}\n\n'
+            f"Группа: {hd.quote(message.chat.title or str(message.chat.id))}\nID группы: <code>{message.chat.id}</code>\n\n"
+            f'Участник: <a href="tg://user?id={user.id}">{hd.quote(await get_full_name(user))}</a>\nID: <code>{user.id}</code>\n\n'
             f"Удалено сообщение со смайликами\nПричина: {hd.quote(reason)}\nСмайликов: {count}\n"
-            f"Обнаружено: {hd.quote(triggers or '<custom emoji>')}\n"
-            f"<blockquote expandable>{hd.quote(source)}</blockquote>\n#emoji_deleted"
+            f"Обнаружено: {hd.quote(triggers or 'пользовательский смайлик')}\n"
+            f"<blockquote expandable>{hd.quote(source)}</blockquote>"
         )
         await bot_send_message(message.bot, LOG_CHANNEL_ID, text, wait=True, parse_mode='HTML', disable_web_page_preview=True)
     except Exception as exc:
