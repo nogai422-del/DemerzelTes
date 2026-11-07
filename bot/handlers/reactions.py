@@ -73,7 +73,7 @@ async def enforce_reaction_media_level(
     if stage == 'new' and await get_pre_bv_mode() == 'allow':
         return
 
-    if await _has_media_level_two(chat_id, user_id):
+    if stage == FORM_STAGE_SAVED and await _has_media_level_two(chat_id, user_id):
         return
 
     try:

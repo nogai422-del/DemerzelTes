@@ -33,8 +33,9 @@ from bot.handlers.badword_detector import detect_badword_details
 from bot.handlers.emoji_detector import message_emoji_count, message_emoji_triggers
 from bot.utils import (
     normalize_telegram_button_url,
-    save_timed_message, get_full_name, safe_delete, is_command_admin,
+    save_timed_message, get_full_name, is_command_admin,
 )
+from bot.moderation_media_log import delete_with_media_log as safe_delete
 from bot.warning_state import (
     FORM_STAGE_FILLING,
     FORM_STAGE_NEW,
@@ -1319,7 +1320,7 @@ async def moderation_handle_text(message: Message, level: int) -> bool:
 
     if emojis_count > 0:
         if (await get_restrict_new_members_telegram()
-                and await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW) or not await has_emoji_permission(chat_id, user_id):
+                and await get_form_stage(chat_id, user_id) in (FORM_STAGE_NEW, FORM_STAGE_FILLING)) or not await has_emoji_permission(chat_id, user_id):
             await safe_delete(message)
             await send_emoji_deleted_log(message, emojis_count, "нет активного доступа к смайликам")
 
@@ -1370,7 +1371,7 @@ async def moderation_handle_message(message: Message) -> bool:
 
     if (content_type != "text"
             and await get_restrict_new_members_telegram()
-            and await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW
+            and await get_form_stage(chat_id, user_id) in (FORM_STAGE_NEW, FORM_STAGE_FILLING)
             and not await is_command_admin(message.bot, chat_id, user_id, owner_id=COSMOS_ID)):
         await safe_delete(message)
         try:

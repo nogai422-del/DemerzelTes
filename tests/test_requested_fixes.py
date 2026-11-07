@@ -29,6 +29,61 @@ def user(user_id):
 
 
 class RequestedFixes(unittest.IsolatedAsyncioTestCase):
+    async def test_deleted_media_is_logged_after_immediate_deletion_for_every_media_type(self):
+        from bot import moderation_media_log as media_log
+        for kind in media_log.MEDIA_TITLES:
+            events=[]
+            async def deleted():
+                events.append('deleted')
+            async def sent(*args, **kwargs):
+                events.append('sent')
+                return NS(message_id=901)
+            sender=AsyncMock(side_effect=sent)
+            bot=NS(send_message=AsyncMock(), **{'send_'+kind:sender})
+            attachment=NS(file_id='kept-after-delete')
+            message=NS(content_type=kind,chat=NS(id=CHAT),from_user=user(31),
+                       message_id=700,caption='Original <caption>',bot=bot,
+                       delete=AsyncMock(side_effect=deleted),**{kind:[attachment] if kind=='photo' else attachment})
+            with patch.object(media_log,'SOURCE_CHAT_ID',CHAT),patch.object(media_log,'LOG_CHANNEL_ID',-1003):
+                task=await media_log.delete_with_media_log(message)
+                self.assertEqual(events,['deleted'])
+                await task
+            self.assertEqual(events,['deleted','sent'])
+            self.assertEqual(sender.call_args.args,(-1003,'kept-after-delete'))
+            if kind in ('video_note','sticker'):
+                self.assertNotIn('caption',sender.call_args.kwargs)
+            else:
+                self.assertEqual(sender.call_args.kwargs['caption'],'Original <caption>')
+                self.assertIsNone(sender.call_args.kwargs['parse_mode'])
+            self.assertIn('tg://user?id=31',bot.send_message.call_args.args[1])
+            self.assertEqual(bot.send_message.call_args.kwargs['reply_parameters'].message_id,901)
+
+    async def test_media_log_failure_does_not_prevent_deletion_or_break_moderation(self):
+        from bot import moderation_media_log as media_log
+        message=NS(content_type='photo',chat=NS(id=CHAT),from_user=user(31),
+                   message_id=700,caption=None,photo=[NS(file_id='photo')],
+                   bot=NS(send_photo=AsyncMock(side_effect=OSError('log unavailable'))),delete=AsyncMock())
+        with patch.object(media_log,'SOURCE_CHAT_ID',CHAT),patch.object(media_log,'LOG_CHANNEL_ID',-1003):
+            task=await media_log.delete_with_media_log(message)
+            message.delete.assert_awaited_once()
+            await task
+        for chat in (CHAT-1,-1003):
+            message.chat.id=chat
+            with patch.object(media_log,'SOURCE_CHAT_ID',CHAT),patch.object(media_log,'LOG_CHANNEL_ID',-1003):
+                self.assertIsNone(await media_log.delete_with_media_log(message))
+
+    async def test_filling_form_blocks_media_even_with_media_two_then_saved_allows(self):
+        async with db() as cur:
+            await cur.execute("INSERT INTO chat_users(chat_id,user_id,form_stage,permission_level) VALUES(?,?,'filling',2)",(CHAT,31))
+        message=NS(content_type='photo',chat=NS(id=CHAT),from_user=user(31),bot=NS())
+        with patch.object(moderation,'is_command_admin',AsyncMock(return_value=False)),patch.object(moderation,'safe_delete',AsyncMock()) as delete,patch.object(moderation,'sync_form_permissions',AsyncMock()),patch.object(moderation,'send_restriction_warning',AsyncMock()),patch.object(moderation,'moderation_handle_text',AsyncMock(return_value=False)):
+            self.assertTrue(await moderation.moderation_handle_message(message))
+            delete.assert_awaited_once()
+            async with db() as cur:
+                await commands._save_filled_form(cur,CHAT,31,'Approved')
+            self.assertFalse(await moderation.moderation_handle_message(message))
+            delete.assert_awaited_once()
+
     async def test_members_list_shows_media_and_timed_grants_in_selected_chat(self):
         from flask import Flask, session
         from web import members as catalog
@@ -83,7 +138,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
                 await donations.send_reaction_denied_notification(bot,chat_id=CHAT,user_id=21)
         bot.delete_message.assert_not_awaited()
 
-    async def test_pre_bv_notify_blocks_attachments_in_telegram_and_handles_queued_photo(self):
+    async def test_pre_bv_notify_accepts_delivery_in_telegram_but_bot_blocks_photo(self):
         await set_pre_bv_mode('notify')
         bot=NS(get_chat_member=AsyncMock(return_value=NS(status=ChatMemberStatus.MEMBER)),restrict_chat_member=AsyncMock())
         await onboarding.sync_form_permissions(bot,CHAT,30,'new')
@@ -92,7 +147,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
         for field in ('can_send_photos', 'can_send_videos', 'can_send_video_notes',
                       'can_send_audios', 'can_send_voice_notes', 'can_send_documents',
                       'can_send_other_messages', 'can_add_web_page_previews', 'can_send_polls'):
-            self.assertFalse(getattr(permissions, field), field)
+            self.assertTrue(getattr(permissions, field), field)
         message=NS(chat=NS(id=CHAT),from_user=user(30),content_type='photo',bot=bot)
         with patch.object(moderation,'get_permission_level',AsyncMock(return_value=0)),patch.object(moderation,'is_command_admin',AsyncMock(return_value=False)),patch.object(moderation,'safe_delete',AsyncMock()),patch.object(moderation,'send_restriction_warning',AsyncMock()) as warn:
             self.assertTrue(await moderation.moderation_handle_message(message))
@@ -209,7 +264,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
 
     async def test_permissions_for_all_stages_and_mutes(self):
         bot=NS(get_chat_member=AsyncMock(return_value=NS(status=ChatMemberStatus.MEMBER)),restrict_chat_member=AsyncMock())
-        for stage, text, media in [('new',True,False),('filling',True,False),('saved',True,True)]:
+        for stage, text, media in [('new',True,True),('filling',True,True),('saved',True,True)]:
             await onboarding.sync_form_permissions(bot,CHAT,30,stage)
             permissions=bot.restrict_chat_member.call_args.kwargs['permissions']
             self.assertEqual(permissions.can_send_messages,text)
@@ -224,7 +279,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
         await onboarding.sync_form_permissions(bot,CHAT,31,'new')
         bot.restrict_chat_member.assert_not_awaited()
 
-    async def test_bv_by_id_opens_only_text_and_keeps_saved_users_unlocked(self):
+    async def test_bv_keeps_telegram_delivery_open_for_bot_moderation(self):
         target=user(40)
         bot=NS(get_chat_member=AsyncMock(return_value=NS(status=ChatMemberStatus.MEMBER,user=target)),restrict_chat_member=AsyncMock(),delete_message=AsyncMock())
         message=NS(chat=NS(id=CHAT),from_user=user(10),reply_to_message=None,text='/bv 40',bot=bot)
@@ -232,7 +287,7 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
             await commands.handle_bv_command(message)
             perms=bot.restrict_chat_member.call_args.kwargs['permissions']
             self.assertTrue(perms.can_send_messages)
-            self.assertFalse(perms.can_react_to_messages)
+            self.assertTrue(perms.can_react_to_messages)
             async with db() as cur:
                 await commands._save_filled_form(cur,CHAT,40,'Approved')
             await commands.handle_bv_command(message)

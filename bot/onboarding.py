@@ -2,8 +2,8 @@
 import time
 from aiogram.types import ChatPermissions
 from bot.database import db
-from bot.settings import get_restrict_new_members_telegram, get_pre_bv_mode
-from bot.warning_state import FORM_STAGE_NEW, FORM_STAGE_FILLING, FORM_STAGE_SAVED, get_form_stage
+from bot.settings import get_restrict_new_members_telegram
+from bot.warning_state import FORM_STAGE_SAVED
 
 
 def form_permissions(stage: str) -> ChatPermissions:
@@ -28,12 +28,7 @@ async def sync_form_permissions(bot, chat_id: int, user_id: int, stage: str | No
         mute = await cur.fetchone()
     if mute and int(mute[0]) > int(time.time()):
         return False
-    if stage is None:
-        stage = await get_form_stage(chat_id, user_id)
-    # Уведомления не должны открывать запрещённые вложения в Telegram.
-    # Текст (включая эмодзи) по-прежнему получает и проверяет бот.
-    permissions_stage = stage
-    if stage == FORM_STAGE_NEW and await get_pre_bv_mode() == 'allow':
-        permissions_stage = FORM_STAGE_SAVED
-    await bot.restrict_chat_member(chat_id, user_id, permissions=form_permissions(permissions_stage), use_independent_chat_permissions=True)
+    # Вложения должны поступать боту для проверки, журнала и удаления.
+    # Этап анкеты и донаты проверяет модерация, Telegram сохраняет доступ.
+    await bot.restrict_chat_member(chat_id, user_id, permissions=form_permissions(FORM_STAGE_SAVED), use_independent_chat_permissions=True)
     return True

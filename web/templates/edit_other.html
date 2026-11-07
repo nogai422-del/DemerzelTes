@@ -10,12 +10,12 @@
 {% block content %}
 <form method="POST"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <section class="section-card">
-    <div class="section-header"><div><h2>Права новых участников</h2><p>До /bv права зависят от режима на странице уведомлений. В режимах «молча», «с уведомлением» и между /bv и /save доступен только текст; вложения заблокированы средствами Telegram. Режим «разрешить» явно открывает функции до /bv. После /save действуют обычные медиа-уровни и донаты.</p></div><span class="section-icon">◉</span></div>
+    <div class="section-header"><div><h2>Права новых участников</h2><p>Текст и вложения поступают Демерзелю. До /bv действует выбранный режим уведомлений; между /bv и /save бот разрешает только текст. После /save бот проверяет медиа-уровни и отдельные донаты. Telegram не блокирует вложения заранее, поэтому бот может сохранить удалённое в группе логов.</p></div><span class="section-icon">◉</span></div>
     <label class="setting-toggle">
       <input type="checkbox" name="chat_behavior[restrict_new_members_telegram]" value="1" {% if restrict_new_members_telegram %}checked{% endif %}>
       <span class="setting-toggle-copy">
-        <strong>Ограничивать новых участников средствами Telegram</strong>
-        <small>Права Telegram автоматически меняются при входе, выдаче анкеты и её сохранении.</small>
+        <strong>Проверять функции участников до сохранения анкеты</strong>
+        <small>Ограничения применяет Демерзель. При входе и выдаче анкеты бот открывает доставку вложений для проверки и логирования; действующие муты сохраняются.</small>
       </span>
     </label>
     <div class="notice notice-info compact-notice">
