@@ -4,16 +4,17 @@ import asyncio
 import time
 from weakref import WeakValueDictionary
 from collections.abc import Awaitable, Callable
+from contextlib import AsyncExitStack
 from typing import Any
 
 from bot.database import db
 from bot.notification_delivery import resolve_notification_source_path
 
 _SCHEMA_READY = False
-_WARNING_LOCKS: WeakValueDictionary[tuple[int, int], asyncio.Lock] = WeakValueDictionary()
+_WARNING_LOCKS: WeakValueDictionary[tuple[int, int | str], asyncio.Lock] = WeakValueDictionary()
 
 
-def _warning_lock(key: tuple[int, int]) -> asyncio.Lock:
+def _warning_lock(key: tuple[int, int | str]) -> asyncio.Lock:
     lock = _WARNING_LOCKS.get(key)
     if lock is None:
         lock = asyncio.Lock()
@@ -97,7 +98,7 @@ _POST_SAVE_DEFAULTS = {
 
 def post_save_permission_type(permission_type: str) -> str:
     """Возвращает существующую категорию обычного уведомления после /save."""
-    value = str(permission_type or "").strip()
+    value = str(getattr(permission_type, 'value', permission_type) or "").strip()
     return value if value in _POST_SAVE_DEFAULTS else POST_SAVE_GENERIC_PERMISSION_TYPE
 
 
@@ -232,6 +233,12 @@ async def ensure_warning_schema() -> None:
                 )
                 """
             )
+
+        await cur.execute('''CREATE TABLE IF NOT EXISTS permission_warning_scopes (
+            chat_id INTEGER NOT NULL, scope TEXT NOT NULL,
+            user_id INTEGER NOT NULL, message_id INTEGER NOT NULL,
+            PRIMARY KEY(chat_id, scope)
+        )''')
 
         await cur.execute(
             """
@@ -416,6 +423,10 @@ async def _forget_warning(chat_id: int, user_id: int) -> None:
             "DELETE FROM permission_messages WHERE chat_id = ? AND user_id = ?",
             (int(chat_id), int(user_id)),
         )
+        await cur.execute(
+            'DELETE FROM permission_warning_scopes WHERE chat_id=? AND user_id=?',
+            (int(chat_id), int(user_id)),
+        )
 
 
 def _cleanup_media_groups(now: float) -> None:
@@ -434,10 +445,14 @@ async def replace_warning(
     user_id: int,
     sender: Callable[[], Awaitable[Any]],
     media_group_id: str | None = None,
+    scope: str | None = None,
 ) -> Any | None:
-    """Удаляет прошлую карточку пользователя и отправляет одну актуальную."""
+    """Заменяет карточку пользователя; scope также заменяет общую карточку чата."""
     key = (int(chat_id), int(user_id))
-    async with _warning_lock(key):
+    async with AsyncExitStack() as stack:
+        if scope:
+            await stack.enter_async_context(_warning_lock((key[0], str(scope))))
+        await stack.enter_async_context(_warning_lock(key))
         media_key: tuple[int, int, str] | None = None
         if media_group_id:
             now = time.monotonic()
@@ -452,6 +467,13 @@ async def replace_warning(
         # успешной доставки — битая картинка или временная ошибка Telegram
         # больше не оставляет пользователя вообще без предупреждения.
         old_message_id = await _get_warning_message_id(*key)
+        old_ids = {old_message_id} if old_message_id else set()
+        if scope:
+            async with db() as cur:
+                await cur.execute('SELECT message_id FROM permission_warning_scopes WHERE chat_id=? AND scope=?', (key[0], scope))
+                previous_scope = await cur.fetchone()
+            if previous_scope:
+                old_ids.add(int(previous_scope[0]))
         try:
             sent = await sender()
         except Exception:
@@ -466,14 +488,20 @@ async def replace_warning(
             return None
 
         await _save_warning_message_id(key[0], key[1], int(new_message_id))
+        if scope:
+            async with db() as cur:
+                await cur.execute('''INSERT INTO permission_warning_scopes(chat_id,scope,user_id,message_id)
+                    VALUES (?,?,?,?) ON CONFLICT(chat_id,scope) DO UPDATE SET
+                    user_id=excluded.user_id,message_id=excluded.message_id''',
+                    (key[0], scope, key[1], int(new_message_id)))
 
-        if old_message_id and int(old_message_id) != int(new_message_id):
+        for old_message_id in old_ids - {int(new_message_id)}:
             try:
                 await bot.delete_message(key[0], int(old_message_id))
-            except Exception:
+            except Exception as exc:
                 # Новое сообщение уже доставлено; невозможность удалить старое
                 # не должна откатывать состояние.
-                pass
+                print(f'[WARNING_DELETE] chat_id={key[0]} message_id={old_message_id}: {exc}')
         return sent
 
 async def clear_warning(bot: Any, chat_id: int, user_id: int) -> None:

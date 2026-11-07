@@ -12,11 +12,13 @@ DATA = tempfile.TemporaryDirectory()
 os.environ.update(DATA_DIR=DATA.name, BOT_TOKEN='123456:TEST_TOKEN', COSMOS_ID='999',
                   SOURCE_CHAT_ID='-1001', BACKUP_CHANNEL_ID='-1002', LOG_CHANNEL_ID='-1003')
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from aiogram.enums import ChatMemberStatus
+from aiogram.enums import ChatMemberStatus, ContentType
 from bot.database import db
 from bot import donations, onboarding
 from bot.handlers import commands, moderation, reactions
-from bot.settings import set_restrict_new_members_telegram
+from bot.settings import set_restrict_new_members_telegram, set_pre_bv_mode
+from bot.handlers.emoji_detector import message_emoji_count, message_emoji_triggers
+from bot.handlers.badword_detector import detect_badword_details
 
 CHAT = -1001
 NOW = 2_000_000_000
@@ -31,9 +33,83 @@ class RequestedFixes(unittest.IsolatedAsyncioTestCase):
         await donations.ensure_donation_schema()
         await moderation.ensure_warning_schema()
         async with db() as cur:
-            for table in ('chat_users','donation_grants','donation_usage','permission_messages','mutes','bv_messages','form_text'):
+            for table in ('chat_users','donation_grants','donation_usage','permission_messages','permission_warning_scopes','mutes','bv_messages','form_text'):
                 await cur.execute(f'DELETE FROM {table}')
         await set_restrict_new_members_telegram(True)
+        await set_pre_bv_mode('silent')
+
+    async def test_reaction_card_replaced_across_different_users(self):
+        bot=NS(delete_message=AsyncMock())
+        with patch.object(donations,'_get_user_name',AsyncMock(return_value='Test')), patch.object(donations,'send_notification_card',AsyncMock(side_effect=[NS(message_id=901),NS(message_id=902)])):
+            await donations.send_reaction_denied_notification(bot,chat_id=CHAT,user_id=20)
+            await donations.send_reaction_denied_notification(bot,chat_id=CHAT,user_id=21)
+        bot.delete_message.assert_awaited_once_with(CHAT,901)
+        async with db() as cur:
+            await cur.execute('SELECT user_id,message_id FROM permission_warning_scopes WHERE chat_id=? AND scope=?',(CHAT,'reaction'))
+            self.assertEqual(tuple(await cur.fetchone()),(21,902))
+
+    async def test_failed_reaction_delivery_preserves_previous_card(self):
+        bot=NS(delete_message=AsyncMock())
+        with patch.object(donations,'_get_user_name',AsyncMock(return_value='Test')), patch.object(donations,'send_notification_card',AsyncMock(side_effect=[NS(message_id=901),RuntimeError('delivery failed')])):
+            await donations.send_reaction_denied_notification(bot,chat_id=CHAT,user_id=20)
+            with self.assertRaises(RuntimeError):
+                await donations.send_reaction_denied_notification(bot,chat_id=CHAT,user_id=21)
+        bot.delete_message.assert_not_awaited()
+
+    async def test_pre_bv_notify_allows_telegram_delivery_but_bot_blocks_photo(self):
+        await set_pre_bv_mode('notify')
+        bot=NS(get_chat_member=AsyncMock(return_value=NS(status=ChatMemberStatus.MEMBER)),restrict_chat_member=AsyncMock())
+        await onboarding.sync_form_permissions(bot,CHAT,30,'new')
+        self.assertTrue(bot.restrict_chat_member.call_args.kwargs['permissions'].can_send_photos)
+        message=NS(chat=NS(id=CHAT),from_user=user(30),content_type='photo',bot=bot)
+        with patch.object(moderation,'get_permission_level',AsyncMock(return_value=0)),patch.object(moderation,'is_command_admin',AsyncMock(return_value=False)),patch.object(moderation,'safe_delete',AsyncMock()),patch.object(moderation,'send_restriction_warning',AsyncMock()) as warn:
+            self.assertTrue(await moderation.moderation_handle_message(message))
+            warn.assert_awaited_once_with(message,'photo')
+
+    async def test_pre_bv_silent_sends_no_card(self):
+        with patch.object(moderation,'send_notification_card',AsyncMock()) as send:
+            self.assertFalse(await moderation.send_restriction_warning_to_chat(NS(),chat_id=CHAT,user=user(31),permission_type='photo'))
+            send.assert_not_awaited()
+
+    async def test_stickers_are_silent_even_with_captions_and_media_two(self):
+        for mode in ('silent','notify','allow'):
+            await set_pre_bv_mode(mode)
+            message=NS(chat=NS(id=CHAT),from_user=user(31),content_type='sticker',bot=NS())
+            with patch.object(moderation,'get_permission_level',AsyncMock(return_value=2)),patch.object(moderation,'safe_delete',AsyncMock()) as delete,patch.object(moderation,'send_restriction_warning',AsyncMock()) as warn,patch.object(moderation,'moderation_handle_text',AsyncMock()) as text:
+                self.assertTrue(await moderation.moderation_handle_message(message))
+                delete.assert_awaited_once()
+                warn.assert_not_awaited()
+                text.assert_not_awaited()
+
+    async def test_slash_ascii_smile_and_normal_words_are_not_emoji_or_profanity(self):
+        for text in ('чем занимаюсь / чем занимался, то и уважаю. :)','Психология, психиатрия, computer science','Да, с точки зрения хобби-фандома :)','35 / 25; 100%; 1939; оО'):
+            self.assertEqual(await message_emoji_count(NS(text=text,entities=[])),0)
+            self.assertIsNone(await detect_badword_details(text))
+
+    async def test_pre_bv_allow_bypasses_media_but_keeps_mute(self):
+        await set_pre_bv_mode('allow')
+        message=NS(chat=NS(id=CHAT),from_user=user(31),content_type='photo',text=None,caption=None,bot=NS())
+        with patch.object(moderation,'get_permission_level',AsyncMock(return_value=0)),patch.object(moderation,'is_user_muted',AsyncMock(return_value=False)),patch.object(moderation,'safe_delete',AsyncMock()) as delete:
+            self.assertFalse(await moderation.moderation_handle_message(message))
+            delete.assert_not_awaited()
+        with patch.object(moderation,'get_permission_level',AsyncMock(return_value=0)),patch.object(moderation,'is_user_muted',AsyncMock(return_value=True)),patch.object(moderation,'safe_delete',AsyncMock()) as delete:
+            self.assertTrue(await moderation.moderation_handle_message(message))
+            delete.assert_awaited_once()
+
+    async def test_real_telegram_content_enums_select_correct_warning(self):
+        async with db() as cur:
+            await commands._save_filled_form(cur,CHAT,32,'Approved')
+        bot=NS(delete_message=AsyncMock())
+        with patch.object(moderation,'get_permission_settings',AsyncMock(return_value={'message':'{user} blocked'})) as settings,patch.object(moderation,'send_notification_card',AsyncMock(return_value=NS(message_id=904))):
+            for content_type in (ContentType.PHOTO,ContentType.ANIMATION,ContentType.VIDEO,ContentType.DOCUMENT):
+                self.assertTrue(await moderation.send_restriction_warning_to_chat(bot,chat_id=CHAT,user=user(32),permission_type=content_type))
+                settings.assert_awaited_with(content_type.value)
+
+    async def test_emoji_log_identifies_trigger_beyond_excerpt_and_custom_emoji(self):
+        message=NS(text='a'*3000+' 😀',entities=[])
+        self.assertEqual(await message_emoji_triggers(message),['😀'])
+        message=NS(text='text :)',entities=[NS(type='custom_emoji',offset=5,length=2)])
+        self.assertEqual(await message_emoji_triggers(message),['custom_emoji: :)'])
 
     async def test_pre_bv_media_is_blocked(self):
         message = NS(chat=NS(id=CHAT), from_user=user(44), content_type='photo', bot=NS())

@@ -1057,6 +1057,7 @@ async def send_reaction_denied_notification(
         chat_id=int(chat_id),
         user_id=int(user_id),
         sender=_sender,
+        scope="reaction",
     )
 
 

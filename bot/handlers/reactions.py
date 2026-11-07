@@ -10,6 +10,7 @@ from bot.database import db
 from bot.donations import send_reaction_denied_notification
 from bot.handlers.moderation import send_restriction_warning_to_chat
 from bot.warning_state import FORM_STAGE_SAVED, get_form_stage
+from bot.settings import get_pre_bv_mode
 
 router = Router()
 
@@ -68,6 +69,10 @@ async def enforce_reaction_media_level(
     chat_id = int(event.chat.id)
     user_id = int(user.id)
 
+    stage = await get_form_stage(chat_id, user_id)
+    if stage == 'new' and await get_pre_bv_mode() == 'allow':
+        return
+
     if await _has_media_level_two(chat_id, user_id):
         return
 
@@ -90,12 +95,13 @@ async def enforce_reaction_media_level(
         return
 
     try:
-        if await get_form_stage(chat_id, user_id) != FORM_STAGE_SAVED:
+        if stage != FORM_STAGE_SAVED:
             await send_restriction_warning_to_chat(
                 bot,
                 chat_id=chat_id,
                 user=user,
                 permission_type="reaction",
+                warning_scope="reaction",
             )
         else:
             await send_reaction_denied_notification(

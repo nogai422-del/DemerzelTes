@@ -26,11 +26,11 @@ from bot.message_queue import (
 from bot.message_templates import get_message_template, render_template, send_configured_message
 from bot.notification_delivery import send_notification_card
 from bot.donation_revoke_settings import get_revoke_settings, log_revoke_action, render_revoke_text
-from bot.settings import get_pre_bv_notification_mode
+from bot.settings import get_pre_bv_notification_mode, get_pre_bv_mode
 from bot.settings import get_restrict_new_members_telegram
 from bot.onboarding import sync_form_permissions
 from bot.handlers.badword_detector import detect_badword_details
-from bot.handlers.emoji_detector import message_emoji_count
+from bot.handlers.emoji_detector import message_emoji_count, message_emoji_triggers
 from bot.utils import (
     normalize_telegram_button_url,
     save_timed_message, get_full_name, safe_delete, is_command_admin,
@@ -153,11 +153,16 @@ async def send_emoji_deleted_log(message: Message, count: int, reason: str) -> N
         return
     try:
         user = message.from_user
-        source = (message.text or message.caption or '<без текста>')[:1200]
+        original = message.text or message.caption or '<без текста>'
+        source = original[:2800]
+        if len(original) > len(source):
+            source += '\n[Текст сокращён]'
+        triggers = ', '.join(await message_emoji_triggers(message))
         text = (
             f"{hd.quote(message.chat.title or str(message.chat.id))}\n{tag_chat(message.chat.id)}\n\n"
             f'<a href="tg://user?id={user.id}">{hd.quote(await get_full_name(user))}</a>\n{tag_user(user.id)}\n\n'
             f"Удалено сообщение со смайликами\nПричина: {hd.quote(reason)}\nСмайликов: {count}\n"
+            f"Обнаружено: {hd.quote(triggers or '<custom emoji>')}\n"
             f"<blockquote expandable>{hd.quote(source)}</blockquote>\n#emoji_deleted"
         )
         await bot_send_message(message.bot, LOG_CHANNEL_ID, text, wait=True, parse_mode='HTML', disable_web_page_preview=True)
@@ -385,6 +390,7 @@ async def send_restriction_warning_to_chat(
     media_group_id: str | None = None,
     message_thread_id: int | None = None,
     force_permission_type: bool = False,
+    warning_scope: str | None = None,
 ) -> bool:
     """Отправляет одно актуальное предупреждение без тихих удалений.
 
@@ -394,12 +400,14 @@ async def send_restriction_warning_to_chat(
     не отменяет уведомление: бот повторяет отправку в упрощённом виде.
     """
     user_id = int(user.id)
-    effective_type = str(permission_type or "").strip()
+    effective_type = str(getattr(permission_type, 'value', permission_type) or "").strip()
     form_stage = None
 
     if not force_permission_type and effective_type != "view":
         form_stage = await get_form_stage(chat_id, user_id)
         if form_stage == FORM_STAGE_NEW:
+            if await get_pre_bv_mode() != 'notify':
+                return False
             effective_type = (
                 pre_bv_permission_type(effective_type)
                 if await get_pre_bv_notification_mode() == 'separate'
@@ -472,6 +480,7 @@ async def send_restriction_warning_to_chat(
         user_id=user_id,
         media_group_id=media_group_id,
         sender=_sender,
+        scope=warning_scope,
     )
     # None означает, что это следующая часть уже обработанного альбома.
     return sent is not None or bool(media_group_id)
@@ -1276,6 +1285,9 @@ async def moderation_handle_text(message: Message, level: int) -> bool:
         await safe_delete(message)
         return True
 
+    if await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW and await get_pre_bv_mode() == 'allow':
+        return False
+
     text = message.text or message.caption or ""
 
     if text:
@@ -1348,6 +1360,14 @@ async def moderation_handle_message(message: Message) -> bool:
     content_type = message.content_type
     level = await get_permission_level(chat_id, user_id)
 
+    # Стикеры отключены на всех уровнях и всегда удаляются без рекламы.
+    if content_type == 'sticker':
+        await safe_delete(message)
+        return True
+
+    if await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW and await get_pre_bv_mode() == 'allow':
+        return await moderation_handle_text(message, level)
+
     if (content_type != "text"
             and await get_restrict_new_members_telegram()
             and await get_form_stage(chat_id, user_id) == FORM_STAGE_NEW
@@ -1357,7 +1377,7 @@ async def moderation_handle_message(message: Message) -> bool:
             await sync_form_permissions(message.bot, chat_id, user_id, FORM_STAGE_NEW)
         except Exception as exc:
             print(f"Ошибка ограничения до /bv: {exc}")
-        await send_restriction_warning(message, 'other_media')
+        await send_restriction_warning(message, content_type)
         return True
 
     # Сначала единая текстовая проверка (мат/ссылки/эмодзи/мут).
@@ -1365,11 +1385,6 @@ async def moderation_handle_message(message: Message) -> bool:
         return True
 
     # Ниже — проверки по типам вложений и медиа.
-    if content_type == "sticker":
-        await safe_delete(message)
-        await send_restriction_warning(message, "sticker")
-        return True
-
     if content_type == "audio":
         # Музыка и аудиофайлы входят только в «Медиа 2».
         if level < 2:

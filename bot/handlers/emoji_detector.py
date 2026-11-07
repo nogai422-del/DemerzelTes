@@ -135,6 +135,23 @@ async def message_emoji_count(message: Any) -> int:
     )
 
 
+async def message_emoji_triggers(message: Any) -> list[str]:
+    """Короткие доказательства для журнала, включая невидимые custom_emoji."""
+    text = getattr(message, 'text', None)
+    entities = getattr(message, 'entities', None)
+    if text is None:
+        text = getattr(message, 'caption', None)
+        entities = getattr(message, 'caption_entities', None)
+    result = list(dict.fromkeys(await extract_emojis(text)))[:12]
+    encoded = (text or '').encode('utf-16-le')
+    for start, end in _custom_emoji_ranges(entities):
+        if len(result) >= 12:
+            break
+        value = encoded[start*2:end*2].decode('utf-16-le', errors='ignore')
+        result.append(f'custom_emoji: {value or "<без текста>"}')
+    return result
+
+
 # Совместимость со старым вызовом проверки строки.
 async def emoji_handler(text: str | None) -> bool:
     return (await emoji_count(text)) > 0

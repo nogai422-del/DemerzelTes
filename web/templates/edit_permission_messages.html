@@ -68,7 +68,7 @@
       <option value="silent" {% if pre_bv_mode == 'silent' %}selected{% endif %}>Запрещать молча — рекомендуемый режим</option>
       <option value="notify" {% if pre_bv_mode == 'notify' %}selected{% endif %}>Запрещать и показывать уведомление</option>
       <option value="allow" {% if pre_bv_mode == 'allow' %}selected{% endif %}>Разрешить функции до /bv</option>
-    </select><span class="field-help">В режиме «молча» запрещённое сообщение удаляется, но предупреждение в чат не отправляется.</span></div>
+    </select><span class="field-help">«Молча»: медиа блокируются средствами Telegram, предупреждений нет. «С уведомлением»: права Telegram открыты, запрещённое сообщение удаляет бот и показывает предупреждение. «Разрешить»: до /bv функции доступны без проверки медиа-уровня. Стикеры всегда удаляются молча; действующий мут сохраняется.</span></div>
     <div class="form-group full">
       <label for="pre-bv-notification-mode">Вариант оповещений до /bv</label>
       <select id="pre-bv-notification-mode" name="pre_bv_notification_mode">

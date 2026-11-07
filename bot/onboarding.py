@@ -2,7 +2,7 @@
 import time
 from aiogram.types import ChatPermissions
 from bot.database import db
-from bot.settings import get_restrict_new_members_telegram
+from bot.settings import get_restrict_new_members_telegram, get_pre_bv_mode
 from bot.warning_state import FORM_STAGE_NEW, FORM_STAGE_FILLING, FORM_STAGE_SAVED, get_form_stage
 
 
@@ -30,5 +30,10 @@ async def sync_form_permissions(bot, chat_id: int, user_id: int, stage: str | No
         return False
     if stage is None:
         stage = await get_form_stage(chat_id, user_id)
-    await bot.restrict_chat_member(chat_id, user_id, permissions=form_permissions(stage), use_independent_chat_permissions=True)
+    # Для предупреждений Telegram должен пропустить сообщение к модератору.
+    # В allow ограничения не применяются, в notify сообщение удалит сам бот.
+    permissions_stage = stage
+    if stage == FORM_STAGE_NEW and await get_pre_bv_mode() in ('notify', 'allow'):
+        permissions_stage = FORM_STAGE_SAVED
+    await bot.restrict_chat_member(chat_id, user_id, permissions=form_permissions(permissions_stage), use_independent_chat_permissions=True)
     return True
