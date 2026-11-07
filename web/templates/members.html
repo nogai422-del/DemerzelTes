@@ -67,7 +67,7 @@
       <option value="">Все этапы</option><option value="new" {% if stage_filter=='new' %}selected{% endif %}>До /bv</option><option value="filling" {% if stage_filter=='filling' %}selected{% endif %}>Заполняет</option><option value="saved" {% if stage_filter=='saved' %}selected{% endif %}>Сохранена</option>
     </select></div>
     <div class="form-group"><label>Статус Telegram</label><select name="status"><option value="">Все статусы</option>{% for value in status_options %}<option value="{{ value }}" {% if status_filter==value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
-    <div class="form-group"><label>Донат</label><select name="donation"><option value="">Любой</option>{% for key,title in categories.items() %}<option value="{{ key }}" {% if donation_filter==key %}selected{% endif %}>{{ title }}</option>{% endfor %}</select></div>
+    <div class="form-group"><label>Донат</label><select name="donation"><option value="">Любой</option>{% for key,title in donation_filter_titles.items() %}<option value="{{ key }}" {% if donation_filter==key %}selected{% endif %}>{{ title }}</option>{% endfor %}</select></div>
     <div class="form-group"><label>Сортировка</label><select name="sort">
       <option value="activity" {% if sort=='activity' %}selected{% endif %}>По активности</option><option value="name" {% if sort=='name' %}selected{% endif %}>По имени</option><option value="id" {% if sort=='id' %}selected{% endif %}>По ID</option><option value="status" {% if sort=='status' %}selected{% endif %}>По статусу</option><option value="stage" {% if sort=='stage' %}selected{% endif %}>По этапу анкеты</option>
     </select></div>
@@ -99,7 +99,9 @@
           <td><strong>{{ m.message_count }}</strong><small class="table-subtext">сообщений</small></td>
           <td>
             <div class="donation-badges">
-              {% for grant in m.grants %}<span class="donation-badge" title="До {{ grant.valid_until_text }}{% if grant.daily_limit %}, лимит {{ grant.daily_limit }}{% endif %}">{{ grant.title }} · {{ grant.valid_until_text }}</span>{% else %}<span class="table-empty">Нет</span>{% endfor %}
+              {% if m.permission_level > 0 %}<span class="donation-badge" title="Выданный медиа-уровень">Медиа {{ m.permission_level }}</span>{% endif %}
+              {% for grant in m.grants %}<span class="donation-badge" title="До {{ grant.valid_until_text }}{% if grant.daily_limit %}, лимит {{ grant.daily_limit }}{% endif %}">{{ grant.title }} · {{ grant.valid_until_text }}</span>{% endfor %}
+              {% if not m.permission_level and not m.grants %}<span class="table-empty">Нет</span>{% endif %}
             </div>
           </td>
           <td>{% if not m.is_chat_member %}<span class="stage-badge member-inactive-badge">Не в чате</span>{% endif %}<span class="telegram-status">{{ m.telegram_status or '—' }}</span>{% if m.telegram_last_seen_at %}<small class="table-subtext">{{ m.telegram_last_seen_at }}</small>{% endif %}</td>

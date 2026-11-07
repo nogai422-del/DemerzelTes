@@ -24,6 +24,7 @@ from env_config import require_env
 members_bp = Blueprint("members", __name__)
 
 PAGE_SIZES = (25, 50, 100)
+DONATION_FILTER_TITLES = {"media1": "Медиа 1", "media2": "Медиа 2", **CATEGORY_TITLES}
 SORT_OPTIONS = {
     "activity": "COALESCE(cu.chat_messages, am.message_count, 0) DESC, am.user_id DESC",
     "name": "LOWER(COALESCE(NULLIF(am.name,''), NULLIF(am.username,''), CAST(am.user_id AS TEXT))) ASC",
@@ -318,6 +319,7 @@ async def members():
         LEFT JOIN (
             SELECT user_id,
                    MAX(COALESCE(messages,0)) AS chat_messages,
+                   MAX(COALESCE(permission_level,0)) AS permission_level,
                    MAX(CASE
                        WHEN TRIM(COALESCE(filled_form_text,'')) <> '' OR form_stage='saved' THEN 2
                        WHEN form_stage='filling' THEN 1
@@ -361,7 +363,10 @@ async def members():
     if stage_filter in {"new", "filling", "saved"}:
         where_parts.append(f"{stage_sql} = ?")
         where_params.append(stage_filter)
-    if donation_filter in CATEGORY_TITLES:
+    if donation_filter in {"media1", "media2"}:
+        where_parts.append("COALESCE(cu.permission_level,0) = ?")
+        where_params.append(1 if donation_filter == "media1" else 2)
+    elif donation_filter in CATEGORY_TITLES:
         where_parts.append(
             "EXISTS (SELECT 1 FROM donation_grants f "
             "WHERE f.chat_id=? AND f.user_id=am.user_id AND f.category=? "
@@ -389,6 +394,7 @@ async def members():
                        COALESCE(am.last_member_sync_at, 0) AS last_member_sync_at,
                        COALESCE(cu.stage_code, 0) AS stage_code,
                        {stage_sql} AS form_stage,
+                       COALESCE(cu.permission_level,0) AS permission_level,
                        dg.grants
                 {from_sql}
                 {where_sql}
@@ -453,6 +459,7 @@ async def members():
         chat_ids=chat_ids,
         selected_chat_id=selected_chat_id,
         categories=CATEGORY_TITLES,
+        donation_filter_titles=DONATION_FILTER_TITLES,
         notice=notice,
         error=error,
         query=query,

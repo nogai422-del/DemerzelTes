@@ -29,6 +29,33 @@ def user(user_id):
 
 
 class RequestedFixes(unittest.IsolatedAsyncioTestCase):
+    async def test_members_list_shows_media_and_timed_grants_in_selected_chat(self):
+        from flask import Flask, session
+        from web import members as catalog
+        await catalog.ensure_sync_schema()
+        async with db() as cur:
+            await cur.execute('DELETE FROM admin_members')
+            for uid, level in ((51, 1), (52, 2), (53, 0)):
+                await cur.execute('INSERT INTO admin_members(user_id,name) VALUES(?,?)', (uid, f'Member {uid}'))
+                await cur.execute('INSERT INTO chat_users(chat_id,user_id,permission_level) VALUES(?,?,?)', (CHAT,uid,level))
+            await cur.execute('INSERT INTO chat_users(chat_id,user_id,permission_level) VALUES(?,?,?)', (CHAT-1,53,2))
+        for category in ('emoji','voice','video_note','tag'):
+            await donations.record_donation_grant(CHAT,51,category,NOW,28)
+        app=Flask(__name__)
+        app.secret_key='test'
+        for media_filter, expected in (('',[51,52,53]),('media1',[51]),('media2',[52])):
+            with app.test_request_context(f'/members?chat_id={CHAT}&sort=id&donation={media_filter}'):
+                session['username']='admin'
+                with patch.object(catalog,'render_template',side_effect=lambda template,**ctx:ctx):
+                    result=await catalog.members()
+                self.assertEqual(sorted(m['user_id'] for m in result['members']), expected)
+                if not media_filter:
+                    rows={m['user_id']:m for m in result['members']}
+                    self.assertEqual([rows[uid]['permission_level'] for uid in (51,52,53)],[1,2,0])
+                    self.assertEqual({g['category'] for g in rows[51]['grants']},{'emoji','voice','video_note','tag'})
+                self.assertIn('media1',result['donation_filter_titles'])
+                self.assertIn('media2',result['donation_filter_titles'])
+
     async def asyncSetUp(self):
         await donations.ensure_donation_schema()
         await moderation.ensure_warning_schema()
